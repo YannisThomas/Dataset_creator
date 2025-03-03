@@ -1,0 +1,19 @@
+# Environnement virtuel
+env/
+venv/
+ENV/
+.env
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Fichiers de configuration locaux
+.vscode/
+.idea/
