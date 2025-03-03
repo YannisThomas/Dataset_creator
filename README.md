@@ -1,4 +1,4 @@
-# Client Lourd - Dataset Management System
+# Dataset Creator - Dataset Management System
 
 An MVC architecture application for managing, importing and exporting datasets, with a focus on image annotation datasets.
 
@@ -14,7 +14,7 @@ An MVC architecture application for managing, importing and exporting datasets, 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/client_lourd.git
+git clone https://github.com/YannisLamamoce/Dataset_creator.git
 cd client_lourd
 ```
 
