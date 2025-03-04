@@ -229,6 +229,11 @@ class DatasetController:
             stats = self.dataset_service.get_dataset_statistics(dataset.name)
             
             if not stats:
+                # Fallback: calculer les statistiques directement
+                self.logger.info("Calcul direct des statistiques")
+                stats = dataset.get_stats()
+            
+            if not stats:
                 raise DatasetError(f"Impossible de récupérer les statistiques du dataset : {dataset.name}")
             
             return stats
@@ -416,3 +421,46 @@ class DatasetController:
         """
         import re
         return bool(re.match(r"^\d+(\.\d+){0,2}$", version))
+    
+    def get_dataset(self, name: str) -> Optional[Dataset]:
+        """
+        Récupère un dataset par son nom
+        
+        Args:
+            name: Nom du dataset
+            
+        Returns:
+            Dataset ou None si non trouvé
+        """
+        try:
+            dataset = self.dataset_service.get_dataset(name)
+            self.logger.info(f"Dataset récupéré : {name}")
+            return dataset
+        except Exception as e:
+            self.logger.error(f"Échec de récupération du dataset : {str(e)}")
+            raise DatasetError(f"Récupération du dataset impossible : {str(e)}")
+        
+
+    def update_dataset(self, dataset: Dataset) -> Dataset:
+        """
+        Met à jour un dataset existant
+        
+        Args:
+            dataset: Dataset à mettre à jour
+            
+        Returns:
+            Dataset mis à jour
+        """
+        try:
+            # Mettre à jour le dataset via le service
+            result = self.dataset_service.update_dataset(dataset)
+            
+            if not result:
+                raise DatasetError(f"Échec de la mise à jour du dataset : {dataset.name}")
+            
+            self.logger.info(f"Dataset mis à jour : {dataset.name}")
+            return dataset
+        
+        except Exception as e:
+            self.logger.error(f"Échec de la mise à jour du dataset : {str(e)}")
+            raise DatasetError(f"Mise à jour du dataset impossible : {str(e)}")

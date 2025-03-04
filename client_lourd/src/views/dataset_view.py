@@ -157,7 +157,27 @@ class DatasetView(BaseView):
         self.image_viewer = ImageViewer()
         self.image_viewer.image_loaded.connect(self._on_image_loaded)
         self.image_viewer.annotation_selected.connect(self._on_viewer_annotation_selected)
+        self.image_viewer.annotation_created.connect(self._on_annotation_created)
+        self.image_viewer.annotation_modified.connect(self._on_annotation_modified)
         panel_layout.addWidget(self.image_viewer)
+        
+        # Barre d'outils d'édition
+        edit_toolbar = QHBoxLayout()
+        
+        view_mode_btn = QPushButton("Visualiser")
+        view_mode_btn.clicked.connect(self.image_viewer.view_mode)
+        
+        create_mode_btn = QPushButton("Créer")
+        create_mode_btn.clicked.connect(self.image_viewer.create_annotation_mode)
+        
+        edit_mode_btn = QPushButton("Éditer")
+        edit_mode_btn.clicked.connect(self.image_viewer.edit_annotation_mode)
+        
+        edit_toolbar.addWidget(view_mode_btn)
+        edit_toolbar.addWidget(create_mode_btn)
+        edit_toolbar.addWidget(edit_mode_btn)
+        
+        panel_layout.addLayout(edit_toolbar)
         
         return panel
         
@@ -778,3 +798,70 @@ class DatasetView(BaseView):
         except Exception as e:
             self.logger.error(f"Échec de la restauration de l'état de la vue: {str(e)}")
             # Ne pas afficher d'erreur à l'utilisateur
+
+    def _on_annotation_created(self, bbox):
+        """
+        Gère la création d'une annotation depuis le visualiseur.
+        
+        Args:
+            bbox: BoundingBox de l'annotation
+        """
+        if not self.current_image:
+            return
+            
+        # Créer une nouvelle annotation
+        from src.models import Annotation
+        from src.models.enums import AnnotationType
+        
+        annotation = Annotation(
+            class_id=0,  # Classe par défaut
+            bbox=bbox,
+            confidence=1.0,
+            type=AnnotationType.BBOX
+        )
+        
+        # Ajouter l'annotation à l'image
+        self.current_image.add_annotation(annotation)
+        
+        # Ouvrir l'éditeur pour spécifier la classe
+        editor = AnnotationEditor(
+            image=self.current_image,
+            dataset=self.dataset,
+            annotation=annotation,
+            parent=self
+        )
+        
+        if editor.exec():
+            # Mettre à jour l'affichage
+            self._update_annotations()
+            self.image_viewer.set_annotations(self.current_image.annotations)
+            
+            # Marquer le dataset comme modifié
+            self.mark_as_dirty()
+            
+            # Émettre le signal de modification du dataset
+            self.dataset_modified.emit(self.dataset)
+        else:
+            # Supprimer l'annotation si annulée
+            self.current_image
+
+    def _on_annotation_modified(self, index, rect):
+        """
+        Gère la modification d'une annotation depuis le visualiseur.
+        
+        Args:
+            index: Index de l'annotation
+            rect: Nouveau rectangle
+        """
+        if not self.current_image or index < 0 or index >= len(self.current_image.annotations):
+            return
+        
+        # L'annotation a déjà été mise à jour dans le visualiseur
+        # Mettre à jour l'affichage des annotations
+        self._update_annotations()
+        
+        # Marquer le dataset comme modifié
+        self.mark_as_dirty()
+        
+        # Émettre le signal de modification du dataset
+        self.dataset_modified.emit(self.dataset)
