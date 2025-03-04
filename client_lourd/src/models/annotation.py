@@ -1,7 +1,7 @@
 # src/models/annotation.py
 
 from typing import Dict, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from .enums import AnnotationType
 
@@ -12,7 +12,7 @@ class BoundingBox(BaseModel):
     width: float = Field(..., ge=0.0, le=1.0)
     height: float = Field(..., ge=0.0, le=1.0)
     
-    @validator('x', 'y', 'width', 'height')
+    @field_validator('x', 'y', 'width', 'height')
     @classmethod
     def validate_coordinates(cls, v, info):
         """Vérifie et ajuste les coordonnées pour qu'elles soient valides"""
@@ -45,7 +45,7 @@ class Annotation(BaseModel):
     type: AnnotationType = AnnotationType.BBOX
     metadata: Dict = Field(default_factory=dict)
     
-    @validator('confidence')
+    @field_validator('confidence')
     @classmethod
     def validate_confidence(cls, v):
         if v is not None and (v < 0 or v > 1):

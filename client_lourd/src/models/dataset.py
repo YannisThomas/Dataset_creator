@@ -3,7 +3,7 @@
 from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator  # New in Pydantic v2
+from pydantic import BaseModel, Field, field_validator
 
 from .image import Image
 
@@ -12,14 +12,6 @@ class Dataset(BaseModel):
     name: str
     version: str = "1.0.0"
     path: Path
-
-    @field_validator('path')
-    @classmethod
-    def validate_path(cls, v):
-        """Valide et crée le chemin du dataset si nécessaire"""
-        path = Path(v)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
     classes: Dict[int, str]
     images: List[Image] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)

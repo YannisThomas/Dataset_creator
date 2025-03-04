@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional, Union
 from pathlib import Path
 
-from client_lourd.src.models.image import Image
+from src.models.image import Image
 from src.models import Dataset
 from src.models.enums import DatasetFormat
 from src.services.import_service import ImportService

@@ -3,7 +3,7 @@
 from typing import List, Dict, Optional, Union
 from datetime import datetime
 from pathlib import Path
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 from urllib.parse import urlparse
 
 from .annotation import Annotation, BoundingBox
@@ -21,18 +21,20 @@ class Image(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: Optional[datetime] = None
 
-    @field_validator('path', pre=True)
+    @model_validator(mode='before')
     @classmethod
-    def validate_path(cls, path, values):
+    def validate_path(cls, data):
         """Validation du chemin en fonction de la source"""
-        source = values.get('source')
+        if isinstance(data, dict):
+            path = data.get('path')
+            source = data.get('source')
 
-        if source in [ImageSource.MAPILLARY, ImageSource.REMOTE]:
-            cls._validate_remote_path(path)
-        elif source == ImageSource.LOCAL:
-            cls._validate_local_path(path)
+            if source in [ImageSource.MAPILLARY, ImageSource.REMOTE]:
+                cls._validate_remote_path(path)
+            elif source == ImageSource.LOCAL:
+                cls._validate_local_path(path)
         
-        return path
+        return data
 
     @classmethod
     def _validate_remote_path(cls, path):

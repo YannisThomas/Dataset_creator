@@ -220,9 +220,15 @@ class ExportController:
 - **Nombre moyen d'annotations par image** : {stats['avg_annotations_per_image']:.2f}
 
 ## Répartition des Classes
-{''.join(f"- **{dataset.classes.get(class_id, f'Classe {class_id}')}** : {count} annotations\n" 
-          for class_id, count in stats['annotations_per_class'].items())}
-
+"""
+            
+            # Ajouter la répartition des classes
+            for class_id, count in stats.get('annotations_per_class', {}).items():
+                class_name = dataset.classes.get(class_id, f'Classe {class_id}')
+                report_content += f"- **{class_name}** : {count} annotations\n"
+            
+            # Ajouter la section de validation
+            report_content += f"""
 ## Validation du Dataset
 {self._generate_validation_section(dataset)}
 
@@ -257,14 +263,19 @@ class ExportController:
         if validation["valid"]:
             return "**Statut** : ✅ Validé\n\n*Aucun problème détecté*"
         else:
-            errors = "".join(f"- {error}\n" for error in validation.get("errors", []))
-            warnings = "".join(f"- {warning}\n" for warning in validation.get("warnings", []))
+            error_list = ""
+            warning_list = ""
             
-            return f"""**Statut** : ❌ Non Validé
-
-### Erreurs
-{errors or '*Aucune erreur*'}
-
-### Avertissements
-{warnings or '*Aucun avertissement*'}
-"""
+            for error in validation.get("errors", []):
+                error_list += f"- {error}\n"
+                
+            for warning in validation.get("warnings", []):
+                warning_list += f"- {warning}\n"
+                
+            result = "**Statut** : ❌ Non Validé\n\n"
+            result += "### Erreurs\n"
+            result += error_list if error_list else "*Aucune erreur*\n\n"
+            result += "### Avertissements\n"
+            result += warning_list if warning_list else "*Aucun avertissement*\n"
+            
+            return result
