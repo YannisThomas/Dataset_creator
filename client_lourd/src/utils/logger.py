@@ -1,4 +1,4 @@
-# src/utils/advanced_logger.py
+# src/utils/logger.py
 
 import logging
 import sys
@@ -22,7 +22,7 @@ class LoggerSingleton(type):
             return cls._instances[cls]
 
 
-class AdvancedLogger(metaclass=LoggerSingleton):
+class Logger(metaclass=LoggerSingleton):
     """
     Système de journalisation avancé pour YOLO Dataset Manager.
     
@@ -120,7 +120,7 @@ class AdvancedLogger(metaclass=LoggerSingleton):
                 def format(self, record):
                     levelname = record.levelname
                     message = super().format(record)
-                    return f"{AdvancedLogger.COLORS.get(levelname, '')}{message}{AdvancedLogger.COLORS['RESET']}"
+                    return f"{Logger.COLORS.get(levelname, '')}{message}{Logger.COLORS['RESET']}"
             
             return ColorFormatter(
                 fmt=self.config['log_format'],
