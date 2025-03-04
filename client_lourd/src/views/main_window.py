@@ -26,6 +26,8 @@ from src.views.dialogs.new_dataset_dialog import NewDatasetDialog
 from src.views.dialogs.preferences_dialog import PreferencesDialog
 from src.views.dialogs.mapillary_import_dialog import MapillaryImportDialog
 from src.views.dialogs.config_dialog import ConfigDialog
+from src.utils.config import ConfigManager
+
 
 class MainWindow(QMainWindow):
     """
