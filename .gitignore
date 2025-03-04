@@ -17,3 +17,6 @@ build/
 # Fichiers de configuration locaux
 .vscode/
 .idea/
+
+.data/logs
+.data/cache
