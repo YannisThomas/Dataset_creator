@@ -1,0 +1,58 @@
+{
+    "api": {
+      "mapillary_token": "VOTRE_TOKEN_MAPILLARY",
+      "mapillary_url": "https://graph.mapillary.com"
+    },
+    "class_mapping": {
+      "0": "regulatory--stop--g1",
+      "1": "regulatory--yield--g1",
+      "2": "regulatory--no-parking--g1",
+      "3": "regulatory--no-stopping--g1",
+      "4": "regulatory--maximum-speed-limit-30--g1",
+      "5": "regulatory--maximum-speed-limit-50--g1",
+      "6": "regulatory--maximum-speed-limit-70--g1",
+      "7": "regulatory--maximum-speed-limit-80--g1",
+      "8": "regulatory--maximum-speed-limit-90--g1",
+      "9": "regulatory--maximum-speed-limit-100--g1",
+      "10": "regulatory--maximum-speed-limit-110--g1",
+      "11": "regulatory--maximum-speed-limit-130--g1",
+      "12": "regulatory--no-entry--g1",
+      "13": "regulatory--one-way-straight--g1",
+      "14": "regulatory--turn-right--g1",
+      "15": "regulatory--turn-left--g1",
+      "16": "regulatory--no-turn-on-red--g1",
+      "17": "regulatory--no-u-turn--g1",
+      "18": "regulatory--no-overtaking--g1",
+      "19": "regulatory--priority-road--g1",
+      "20": "warning--pedestrians-crossing--g1",
+      "21": "warning--bicycles-crossing--g1",
+      "22": "warning--traffic-signals--g1",
+      "23": "warning--roadworks--g1",
+      "24": "warning--road-bump--g1",
+      "25": "warning--slippery-road-surface--g1",
+      "26": "warning--railroad-crossing--g1",
+      "27": "warning--railroad-crossing-with-barriers--g1",
+      "28": "warning--curve-left--g1",
+      "29": "warning--curve-right--g1",
+      "30": "warning--winding-road-first-left--g1",
+      "31": "warning--roundabout--g1",
+      "32": "information--parking--g1",
+      "33": "information--bicycle-lane--g1",
+      "34": "information--bus-stop--g1",
+      "35": "information--pedestrians-crossing--g1",
+      "36": "information--hospital--g1",
+      "37": "information--gas-station--g1"
+    },
+    "sign_categories": {
+      "regulatory": "Réglementaire",
+      "warning": "Danger",
+      "information": "Information",
+      "complementary": "Complémentaire"
+    },
+    "import_settings": {
+      "default_radius_km": 5,
+      "default_corridor_width_m": 200,
+      "max_images_per_import": 500,
+      "batch_size": 50
+    }
+  }
