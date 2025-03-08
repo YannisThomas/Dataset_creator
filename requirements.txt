@@ -1,25 +1,47 @@
-# Core dependencies
+# Core Python Dependencies
+python-dotenv>=0.20.0
 pillow>=9.0.0
 requests>=2.28.0
-pydantic>=1.9.0
-python-dotenv>=0.20.0
-loguru>=0.6.0
+pydantic>=2.0.0
+typing-extensions>=4.0.0
 
-# Database dependencies
-sqlalchemy>=1.4.0
-alembic>=1.8.0
+# Database Dependencies
+sqlalchemy>=2.0.0
+alembic>=1.11.0
+sqlite3  # Inclus dans la bibliothèque standard de Python
 
-# UI dependencies (assuming this is a desktop app)
-PyQt6>=6.3.0
-# or
-# PySide6>=6.3.0
+# UI Dependencies
+PyQt6>=6.5.0
+PyQt6-Qt6>=6.5.0
+PyQt6-sip>=13.4.0
 
-# Data processing
+# Data Processing
 numpy>=1.22.0
 pandas>=1.4.0
+pyyaml>=6.0.0
 
-# Testing
-pytest>=7.0.0
-pytest-cov>=3.0.0
-pyyaml>=6.0.2
+# API and Network
+urllib3>=2.0.0
 mapbox-vector-tile>=2.1.0
+
+# Logging
+loguru>=0.7.0
+
+# Image Processing
+opencv-python>=4.7.0
+matplotlib>=3.7.0
+
+# Optional but Recommended
+scipy>=1.10.0
+scikit-image>=0.20.0
+
+# Development and Testing
+pytest>=7.3.0
+pytest-cov>=4.0.0
+pytest-qt>=4.2.0
+mypy>=1.3.0
+flake8>=6.0.0
+
+# Export and Conversion
+openpyxl>=3.1.0
+xlrd>=2.0.0
