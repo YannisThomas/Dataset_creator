@@ -16,6 +16,9 @@ class DatabaseManager:
     Cette classe gère les interactions avec la base de données SQLite.
     """
     
+    # Version du schéma - incrémenter à chaque modification de la structure
+    SCHEMA_VERSION = "1.0.0"
+    
     def __init__(self, db_path: Optional[Path] = None, logger: Optional[Logger] = None):
         """
         Initialise le gestionnaire de base de données.
@@ -33,6 +36,9 @@ class DatabaseManager:
         # Initialiser la connexion
         self.conn = None
         self._init_connection()
+        
+        # Vérifier les migrations nécessaires
+        self._check_migrations()
     
     def _init_connection(self):
         """Initialise la connexion à la base de données et crée les tables si nécessaire."""
@@ -54,6 +60,16 @@ class DatabaseManager:
     def _create_tables(self):
         """Crée les tables nécessaires si elles n'existent pas."""
         cursor = self.conn.cursor()
+        
+        # Table des migrations pour suivre les changements de schéma
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version TEXT NOT NULL,
+            description TEXT,
+            applied_at TEXT NOT NULL
+        )
+        ''')
         
         # Table des datasets
         cursor.execute('''
@@ -101,15 +117,118 @@ class DatabaseManager:
         )
         ''')
         
-        # Table de migration
+        self.conn.commit()
+    
+    def _check_migrations(self):
+        """Vérifie si des migrations sont nécessaires et les applique."""
+        cursor = self.conn.cursor()
+        
+        # Vérifier si la table de migrations existe
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='migrations'")
+        if not cursor.fetchone():
+            # La table n'existe pas, probablement une nouvelle base de données
+            self._create_tables()
+            # Enregistrer la migration initiale
+            cursor.execute('''
+            INSERT INTO migrations (version, description, applied_at)
+            VALUES (?, ?, ?)
+            ''', (self.SCHEMA_VERSION, "Initial schema", datetime.now().isoformat()))
+            self.conn.commit()
+            return
+        
+        # Récupérer la dernière version appliquée
+        cursor.execute("SELECT version FROM migrations ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        if not row:
+            # Aucune migration enregistrée, enregistrer la version actuelle
+            cursor.execute('''
+            INSERT INTO migrations (version, description, applied_at)
+            VALUES (?, ?, ?)
+            ''', (self.SCHEMA_VERSION, "Initial schema", datetime.now().isoformat()))
+            self.conn.commit()
+            return
+        
+        last_version = row[0]
+        
+        # Liste des migrations à appliquer
+        migrations = [
+            {
+                "version": "1.0.0",
+                "description": "Initial schema",
+                "action": lambda: None  # Pas d'action, déjà fait dans _create_tables
+            },
+            {
+                "version": "1.1.0",
+                "description": "Add indexes",
+                "action": self._migration_add_indexes
+            },
+            {
+                "version": "1.2.0",
+                "description": "Add statistics table",
+                "action": self._migration_add_stats_table
+            }
+        ]
+        
+        # Trouver où nous en sommes dans les migrations
+        last_index = -1
+        for i, migration in enumerate(migrations):
+            if migration["version"] == last_version:
+                last_index = i
+                break
+        
+        # Appliquer les migrations suivantes
+        if last_index < len(migrations) - 1:
+            for migration in migrations[last_index + 1:]:
+                self.logger.info(f"Application de la migration {migration['version']}: {migration['description']}")
+                
+                try:
+                    # Exécuter l'action de migration
+                    migration["action"]()
+                    
+                    # Enregistrer la migration
+                    cursor.execute('''
+                    INSERT INTO migrations (version, description, applied_at)
+                    VALUES (?, ?, ?)
+                    ''', (migration["version"], migration["description"], datetime.now().isoformat()))
+                    
+                    self.conn.commit()
+                    self.logger.info(f"Migration {migration['version']} appliquée avec succès")
+                    
+                except Exception as e:
+                    self.conn.rollback()
+                    self.logger.error(f"Échec de la migration {migration['version']}: {str(e)}")
+                    raise
+    
+    def _migration_add_indexes(self):
+        """Migration: Ajoute des index pour améliorer les performances."""
+        cursor = self.conn.cursor()
+        
+        # Ajouter des index pour améliorer les performances des requêtes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_images_dataset ON images(dataset_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_image ON annotations(image_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_annotations_class ON annotations(class_id)")
+        
+        self.conn.commit()
+    
+    def _migration_add_stats_table(self):
+        """Migration: Ajoute une table pour les statistiques."""
+        cursor = self.conn.cursor()
+        
+        # Créer la table des statistiques de dataset
         cursor.execute('''
-        CREATE TABLE IF NOT EXISTS migrations (
+        CREATE TABLE IF NOT EXISTS dataset_stats (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version TEXT NOT NULL,
-            description TEXT,
-            applied_at TEXT NOT NULL
+            dataset_name TEXT NOT NULL,
+            stat_date TEXT NOT NULL,
+            image_count INTEGER NOT NULL DEFAULT 0,
+            annotation_count INTEGER NOT NULL DEFAULT 0,
+            class_distribution TEXT,
+            FOREIGN KEY (dataset_name) REFERENCES datasets(name) ON DELETE CASCADE
         )
         ''')
+        
+        # Créer un index pour accélérer les recherches par date et dataset
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_dataset_date ON dataset_stats(dataset_name, stat_date)")
         
         self.conn.commit()
     
@@ -207,6 +326,9 @@ class DatabaseManager:
                         annotation_metadata_json
                     ))
             
+            # Mettre à jour les statistiques
+            self._update_dataset_stats(dataset)
+            
             self.conn.commit()
             self.logger.info(f"Dataset {dataset.name} sauvegardé avec succès")
             return True
@@ -215,6 +337,40 @@ class DatabaseManager:
             self.logger.error(f"Échec de la sauvegarde du dataset: {str(e)}")
             self.conn.rollback()
             return False
+    
+    def _update_dataset_stats(self, dataset: Dataset):
+        """
+        Met à jour les statistiques du dataset.
+        
+        Args:
+            dataset: Dataset à analyser
+        """
+        cursor = self.conn.cursor()
+        
+        # Calculer les statistiques
+        image_count = len(dataset.images)
+        annotation_count = sum(len(img.annotations) for img in dataset.images)
+        
+        # Compter les annotations par classe
+        class_distribution = {}
+        for image in dataset.images:
+            for ann in image.annotations:
+                class_id = ann.class_id
+                if class_id not in class_distribution:
+                    class_distribution[class_id] = 0
+                class_distribution[class_id] += 1
+        
+        # Insérer les statistiques
+        cursor.execute('''
+        INSERT INTO dataset_stats (dataset_name, stat_date, image_count, annotation_count, class_distribution)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (
+            dataset.name,
+            datetime.now().date().isoformat(),
+            image_count,
+            annotation_count,
+            json.dumps(class_distribution)
+        ))
     
     def load_dataset(self, name: str) -> Optional[Dataset]:
         """
@@ -409,56 +565,12 @@ class DatabaseManager:
             True si les migrations ont été appliquées avec succès
         """
         try:
-            cursor = self.conn.cursor()
-            
-            # Récupérer les migrations déjà appliquées
-            cursor.execute("SELECT version FROM migrations ORDER BY id")
-            applied_migrations = [row['version'] for row in cursor.fetchall()]
-            
-            # Liste des migrations disponibles
-            migrations = [
-                {
-                    'version': '1.0.0',
-                    'description': 'Création des tables initiales',
-                    'script': lambda: None  # Déjà fait dans _create_tables
-                },
-                {
-                    'version': '1.1.0',
-                    'description': 'Ajout de l\'index sur les images',
-                    'script': lambda: cursor.execute('CREATE INDEX IF NOT EXISTS idx_images_dataset ON images(dataset_name)')
-                },
-                {
-                    'version': '1.2.0',
-                    'description': 'Ajout de l\'index sur les annotations',
-                    'script': lambda: cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_image ON annotations(image_id)')
-                }
-            ]
-            
-            # Appliquer les migrations non appliquées
-            for migration in migrations:
-                if migration['version'] not in applied_migrations:
-                    # Exécuter le script de migration
-                    migration['script']()
-                    
-                    # Enregistrer la migration
-                    cursor.execute('''
-                    INSERT INTO migrations (version, description, applied_at)
-                    VALUES (?, ?, ?)
-                    ''', (
-                        migration['version'],
-                        migration['description'],
-                        datetime.now().isoformat()
-                    ))
-                    
-                    self.logger.info(f"Migration {migration['version']} appliquée")
-            
-            self.conn.commit()
+            self._check_migrations()
             self.logger.info("Migrations appliquées avec succès")
             return True
             
         except Exception as e:
             self.logger.error(f"Échec de l'application des migrations: {str(e)}")
-            self.conn.rollback()
             return False
     
     def get_migration_history(self) -> List[Dict[str, Any]]:
@@ -490,6 +602,42 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Échec de la récupération de l'historique des migrations: {str(e)}")
             return []
+    
+    def backup_database(self, backup_path: Optional[Path] = None) -> Path:
+        """
+        Crée une sauvegarde de la base de données.
+        
+        Args:
+            backup_path: Chemin de la sauvegarde (optionnel)
+            
+        Returns:
+            Chemin de la sauvegarde
+        """
+        try:
+            from datetime import datetime
+            import shutil
+            
+            # Déterminer le chemin de sauvegarde
+            if not backup_path:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_path = self.db_path.parent / f"backup_{timestamp}_{self.db_path.name}"
+            
+            # Créer le répertoire parent si nécessaire
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Créer une sauvegarde
+            self.conn.close()  # Fermer la connexion pour libérer le fichier
+            shutil.copy2(self.db_path, backup_path)
+            self._init_connection()  # Ré-ouvrir la connexion
+            
+            self.logger.info(f"Base de données sauvegardée: {backup_path}")
+            return backup_path
+            
+        except Exception as e:
+            self.logger.error(f"Échec de la sauvegarde de la base de données: {str(e)}")
+            # Assurer que la connexion est rouverte en cas d'erreur
+            self._init_connection()
+            raise
     
     def close(self):
         """Ferme la connexion à la base de données."""
