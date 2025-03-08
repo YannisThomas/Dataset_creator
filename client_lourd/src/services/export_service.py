@@ -16,7 +16,7 @@ from src.models.enums import DatasetFormat, AnnotationType
 from src.utils.logger import Logger
 from src.core.exceptions import ExportError
 
-class EnhancedExportService:
+class ExportService:
     """Service d'exportation des datasets avec options avancées"""
     
     def __init__(self, logger: Optional[Logger] = None):

@@ -102,10 +102,12 @@ class MapillaryImportDialog(BaseDialog):
         
     def _load_config(self):
         """Charge les fichiers de configuration."""
+        # Initialize mapillary_config with default values
+        self.mapillary_config = {"api": {}, "class_mapping": {}, "import_settings": {}}
+        
         try:
-            # Chemin vers le dossier de configuration
-            config_dir = Path("config")
-            config_dir.mkdir(exist_ok=True)
+            # Chemin vers le dossier de configuration - CORRIGÉ
+            config_dir = Path("src/config")  # Chemin correct
             
             # Charger les zones géographiques françaises
             geo_path = config_dir / "french_geo_zones.json"
@@ -113,22 +115,25 @@ class MapillaryImportDialog(BaseDialog):
                 with open(geo_path, 'r', encoding='utf-8') as f:
                     self.geo_data = json.load(f)
             else:
-                self.logger.warning(f"Fichier de zones géographiques non trouvé: {geo_path}")
-                self.geo_data = {"cities": {}, "roads": {}, "regions": {}, "landmarks": {}}
-            
-            # Charger la configuration Mapillary
-            mapillary_path = config_dir / "mapillary_config.json"
-            if mapillary_path.exists():
-                with open(mapillary_path, 'r', encoding='utf-8') as f:
+                # Essayer un chemin alternatif si le premier échoue
+                alt_path = Path("client_lourd/src/config/french_geo_zones.json")
+                if alt_path.exists():
+                    with open(alt_path, 'r', encoding='utf-8') as f:
+                        self.geo_data = json.load(f)
+                else:
+                    self.logger.warning(f"Fichier de zones géographiques non trouvé: {geo_path} ni {alt_path}")
+                    self.geo_data = {"cities": {}, "roads": {}, "regions": {}, "landmarks": {}}
+                    
+            # Optionally load Mapillary configuration
+            mapillary_config_path = config_dir / "mapillary_config.json"
+            if mapillary_config_path.exists():
+                with open(mapillary_config_path, 'r', encoding='utf-8') as f:
                     self.mapillary_config = json.load(f)
-            else:
-                self.logger.warning(f"Fichier de configuration Mapillary non trouvé: {mapillary_path}")
-                self.mapillary_config = {"api": {}, "class_mapping": {}, "import_settings": {}}
-                
+                    
         except Exception as e:
             self.logger.error(f"Erreur lors du chargement des configurations: {str(e)}")
             self.geo_data = {"cities": {}, "roads": {}, "regions": {}, "landmarks": {}}
-            self.mapillary_config = {"api": {}, "class_mapping": {}, "import_settings": {}}
+
         
     def _create_ui(self):
         """Crée l'interface utilisateur du dialogue."""
@@ -540,7 +545,7 @@ class MapillaryImportDialog(BaseDialog):
                     
                     # Mise à jour progressive
                     if i % 5 == 0:
-                        self.progress_bar.setValue(50 + (i / len(preview_images)) * 50)
+                        self.progress_bar.setValue(int(50 + (i / len(preview_images)) * 50))
                         QApplication.processEvents()
                 
                 self.progress_bar.setValue(100)

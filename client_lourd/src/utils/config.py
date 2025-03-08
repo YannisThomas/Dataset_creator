@@ -149,42 +149,115 @@ class ConfigManager:
         Returns:
             Dictionnaire de configuration par défaut
         """
-        return {
-            "api": {
-                "mapillary_token": os.getenv("MAPILLARY_TOKEN"),
-                "mapillary_url": "https://graph.mapillary.com",
-                "request_timeout": 30,
-                "max_retries": 3,
-                "batch_size": 50
-            },
-            "storage": {
-                "base_dir": "data",
-                "dataset_dir": "data/datasets",
-                "cache_dir": "data/cache",
-                "db_path": "data/yolo_datasets.db",
-                "max_cache_size_mb": 1000
-            },
-            "dataset": {
-                "default_version": "1.0.0",
-                "min_image_size": 32,
-                "max_image_size": 4096,
-                "supported_formats": ["jpg", "jpeg", "png"],
-                "default_classes": {0: "Panneau"},
-                "export_formats": ["yolo", "coco", "voc"]
-            },
-            "ui": {
-                "window_width": 1280,
-                "window_height": 720,
-                "theme": "light",
-                "language": "fr",
-                "max_recent_datasets": 5
-            },
-            "debug_mode": bool(os.getenv("DEBUG", False))
-        }
+        try:
+            # Log détaillé de la source du token
+            mapillary_token = None
+            
+            # Charger depuis mapillary_config.json
+            # Utiliser le chemin correct vers le fichier de configuration
+            config_dir = Path(__file__).parent.parent / "config"
+            mapillary_config_path = config_dir / "mapillary_config.json"
+            
+            self.logger.debug(f"Chemin du fichier de configuration : {mapillary_config_path}")
+            self.logger.debug(f"Le fichier existe : {mapillary_config_path.exists()}")
+            
+            if mapillary_config_path.exists():
+                try:
+                    with open(mapillary_config_path, 'r', encoding='utf-8') as f:
+                        mapillary_config = json.load(f)
+                        
+                    self.logger.debug(f"Configuration chargée : {mapillary_config}")
+                    
+                    if 'api' in mapillary_config and 'mapillary_token' in mapillary_config['api']:
+                        mapillary_token = mapillary_config['api']['mapillary_token']
+                        self.logger.info(f"Token Mapillary chargé depuis le fichier. Longueur : {len(mapillary_token)}")
+                except Exception as e:
+                    self.logger.error(f"Impossible de charger le token Mapillary : {str(e)}")
+            
+            # Fallback sur la variable d'environnement
+            if not mapillary_token:
+                mapillary_token = os.getenv("MAPILLARY_TOKEN")
+                if mapillary_token:
+                    self.logger.info("Token chargé depuis la variable d'environnement")
+            
+            # Log de débogage
+            if mapillary_token:
+                self.logger.debug(f"Token final - Commence par : {mapillary_token[:10]}")
+            else:
+                self.logger.error("AUCUN TOKEN MAPILLARY TROUVÉ")
+            
+            return {
+                "api": {
+                    "mapillary_token": mapillary_token,
+                    "mapillary_url": "https://graph.mapillary.com",
+                    "request_timeout": 30,
+                    "max_retries": 3,
+                    "batch_size": 50
+                },
+                "storage": {
+                    "base_dir": "data",
+                    "dataset_dir": "data/datasets",
+                    "cache_dir": "data/cache",
+                    "db_path": "data/yolo_datasets.db",
+                    "max_cache_size_mb": 1000
+                },
+                "dataset": {
+                    "default_version": "1.0.0",
+                    "min_image_size": 32,
+                    "max_image_size": 4096,
+                    "supported_formats": ["jpg", "jpeg", "png"],
+                    "default_classes": {0: "Panneau"},
+                    "export_formats": ["yolo", "coco", "voc"]
+                },
+                "ui": {
+                    "window_width": 1280,
+                    "window_height": 720,
+                    "theme": "light",
+                    "language": "fr",
+                    "max_recent_datasets": 5
+                },
+                "debug_mode": bool(os.getenv("DEBUG", False))
+            }
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la génération de la configuration : {str(e)}")
+            
+            # Configuration par défaut minimale en cas d'erreur
+            return {
+                "api": {
+                    "mapillary_token": None,
+                    "mapillary_url": "https://graph.mapillary.com",
+                    "request_timeout": 30,
+                    "max_retries": 3,
+                    "batch_size": 50
+                },
+                "storage": {
+                    "base_dir": "data",
+                    "dataset_dir": "data/datasets",
+                    "cache_dir": "data/cache",
+                    "db_path": "data/yolo_datasets.db",
+                    "max_cache_size_mb": 1000
+                },
+                "dataset": {
+                    "default_version": "1.0.0",
+                    "min_image_size": 32,
+                    "max_image_size": 4096,
+                    "supported_formats": ["jpg", "jpeg", "png"],
+                    "default_classes": {0: "Panneau"},
+                    "export_formats": ["yolo", "coco", "voc"]
+                },
+                "ui": {
+                    "window_width": 1280,
+                    "window_height": 720,
+                    "theme": "light",
+                    "language": "fr",
+                    "max_recent_datasets": 5
+                },
+                "debug_mode": bool(os.getenv("DEBUG", False))
+            }
     
     def _merge_env_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Fusionne la configuration avec les variables d'environnement
+        Fusionne la configuration avec les sources de configuration alternatives
         
         Args:
             config: Configuration de base
@@ -192,15 +265,27 @@ class ConfigManager:
         Returns:
             Configuration fusionnée
         """
-        # Mapillary Token
-        if token := os.getenv("MAPILLARY_TOKEN"):
-            config["api"]["mapillary_token"] = token
+        # Charger le token Mapillary depuis mapillary_config.json
+        try:
+            config_dir = Path("config")
+            mapillary_config_path = config_dir / "mapillary_config.json"
+            
+            if mapillary_config_path.exists():
+                with open(mapillary_config_path, 'r', encoding='utf-8') as f:
+                    mapillary_config = json.load(f)
+                    
+                # Récupérer le token depuis la configuration Mapillary
+                if 'api' in mapillary_config and 'mapillary_token' in mapillary_config['api']:
+                    config['api']['mapillary_token'] = mapillary_config['api']['mapillary_token']
+                    self.logger.info("Token Mapillary chargé depuis mapillary_config.json")
+        except Exception as e:
+            self.logger.warning(f"Impossible de charger le token Mapillary : {str(e)}")
         
-        # Mode débogage
+        # Priorité pour le mode débogage
         if debug := os.getenv("DEBUG"):
             config["debug_mode"] = debug.lower() == "true"
         
-        # Répertoire de base
+        # Configuration du répertoire de base
         if base_dir := os.getenv("BASE_DIR"):
             config["storage"]["base_dir"] = base_dir
             config["storage"]["dataset_dir"] = str(Path(base_dir) / "datasets")

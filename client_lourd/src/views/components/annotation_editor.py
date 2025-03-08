@@ -17,9 +17,9 @@ from PyQt6.QtWidgets import (
     QWidget,
     QColorDialog,
     QToolButton,
-    QMenu,
-    QAction
+
 )
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap, QPainter, QTransform
 from typing import Optional, Dict, List
@@ -28,7 +28,7 @@ from src.models import Image, Dataset, Annotation, BoundingBox
 from src.models.enums import AnnotationType
 from src.utils.logger import Logger
 
-class EnhancedAnnotationEditor(QDialog):
+class AnnotationEditor(QDialog):
     """
     Éditeur avancé pour la création/modification d'annotations.
     Ajoute des fonctionnalités de rotation, transformation, duplication, etc.

@@ -378,9 +378,9 @@ class RateLimiter:
                 return True
 
 
-class EnhancedAPIService:
+class APIService:
     """
-    Service amélioré de gestion des appels API avec cache et gestion des limites de taux.
+    Service de gestion des appels API avec cache et gestion des limites de taux.
     """
     
     def __init__(
@@ -440,6 +440,9 @@ class EnhancedAPIService:
         Returns:
             En-têtes HTTP
         """
+        # Log détaillé du token
+        self.logger.debug(f"Token utilisé : {self.config.api.mapillary_token}")
+        
         return {
             "Authorization": f"Bearer {self.config.api.mapillary_token}",
             "Accept": "application/json",
@@ -492,7 +495,7 @@ class EnhancedAPIService:
         
         # Générer la clé de cache
         cache_key = self._generate_cache_key(endpoint, params)
-        
+        self.logger.debug(f"Token utilisé : {self.config.api.mapillary_token[:10]}...")
         try:
             # Tenter de récupérer depuis le cache si activé
             if self.cache and use_cache and not force_refresh:
@@ -557,49 +560,43 @@ class EnhancedAPIService:
                 
         except requests.exceptions.RequestException as e:
             self.request_errors += 1
-            self.logger.error(f"Erreur de requête : {str(e)}")
-            raise APIError(f"Échec de la requête : {str(e)}")
+            detailed_error = f"Détails de l'erreur : {str(e)}"
+            if hasattr(e, 'response'):
+                detailed_error += f"\nRéponse du serveur : {e.response.text}"
+            self.logger.error(f"Erreur de requête : {detailed_error}")
+            raise APIError(f"Échec de la requête : {detailed_error}")
     
     def verify_token(self, use_cache: bool = True) -> bool:
         """
         Vérifie la validité du token API.
-        
-        Args:
-            use_cache: Utiliser le cache si disponible
-            
-        Returns:
-            True si le token est valide, False sinon
         """
         try:
-            # Test avec une requête minimale
-            bbox = "2.3522,48.8566,2.3523,48.8567"  # Petit secteur de test
+            # Log détaillé du token
+            self.logger.debug(f"Vérification du token. Longueur : {len(self.config.api.mapillary_token)}")
+            self.logger.debug(f"Début du token : {self.config.api.mapillary_token[:10]}")
+            
+            # Paramètres de test
             params = {
                 "fields": "id",
-                "bbox": bbox,
+                "bbox": "2.3522,48.8566,2.3523,48.8567",  # Petit secteur de Paris
                 "limit": 1
             }
             
-            # Clé de cache spécifique pour la vérification du token
-            cache_key = "token_verification"
-            
-            # Vérifier le cache si activé
-            if self.cache and use_cache:
-                cached_result = self.cache.get(cache_key)
-                if cached_result is not None:
-                    return cached_result
-            
             # Faire la requête
             response = self._make_request("images", params, use_cache=False)
+            
+            # Log de la réponse
+            self.logger.info(f"Réponse de vérification de token : {response}")
+            
+            # Vérifier la structure de la réponse
             result = isinstance(response, dict) and 'data' in response
             
-            # Mettre en cache si activé
-            if self.cache:
-                self.cache.set(cache_key, result)
-            
+            self.logger.info(f"Résultat de la vérification du token : {result}")
             return result
-            
+        
         except Exception as e:
-            self.logger.error(f"Échec de la vérification du token: {str(e)}")
+            # Journalisation très détaillée de l'exception
+            self.logger.error(f"Erreur lors de la vérification du token : {str(e)}")
             return False
     
     def get_images_in_bbox(
@@ -611,17 +608,16 @@ class EnhancedAPIService:
     ) -> List[Image]:
         """
         Récupère les images dans une bounding box donnée.
-        
-        Args:
-            bbox: Bounding box (min_lat, min_lon, max_lat, max_lon)
-            limit: Nombre maximum d'images à récupérer
-            use_cache: Utiliser le cache si disponible
-            force_refresh: Forcer le rafraîchissement du cache
-            
-        Returns:
-            Liste des images trouvées
         """
+        # Log détaillé des paramètres d'entrée
+        self.logger.debug(f"Paramètres bbox: {bbox}")
+        self.logger.debug(f"Limite: {limit}")
+        
+        # Génération de la chaîne bbox
         bbox_str = f"{bbox['min_lon']},{bbox['min_lat']},{bbox['max_lon']},{bbox['max_lat']}"
+        self.logger.debug(f"Chaîne bbox générée: {bbox_str}")
+        
+        # Paramètres de la requête
         params = {
             "bbox": bbox_str,
             "fields": "id,geometry,captured_at,thumb_1024_url",
@@ -629,6 +625,12 @@ class EnhancedAPIService:
         }
         
         try:
+            # Log avant la requête
+            self.logger.debug("Tentative de requête à l'API Mapillary")
+            self.logger.debug(f"URL endpoint: images")
+            self.logger.debug(f"Paramètres: {params}")
+            
+            # Effectuer la requête
             response = self._make_request(
                 "images", 
                 params, 
@@ -636,21 +638,34 @@ class EnhancedAPIService:
                 force_refresh=force_refresh
             )
             
+            # Log de la réponse
+            self.logger.debug(f"Réponse reçue. Clés: {response.keys() if isinstance(response, dict) else 'Non dict'}")
+            
             if not response or "data" not in response:
                 self.logger.warning("Aucune donnée reçue de l'API Mapillary")
                 return []
             
+            # Log du nombre de données reçues
+            self.logger.debug(f"Nombre d'images reçues : {len(response['data'])}")
+            
             images = []
             for img_data in response["data"]:
                 try:
+                    # Log détaillé de chaque image
+                    self.logger.debug(f"Traitement de l'image: {img_data.get('id', 'unknown')}")
+                    
                     # Extraire les coordonnées de manière sécurisée
                     geometry = img_data.get('geometry', {})
+                    self.logger.debug(f"Géométrie de l'image: {geometry}")
+                    
                     if not geometry:
                         self.logger.warning(f"Image {img_data.get('id', 'unknown')} ignorée : géométrie manquante")
                         continue
                     
                     # Vérifier et extraire les coordonnées
                     coordinates = geometry.get('coordinates', [])
+                    self.logger.debug(f"Coordonnées: {coordinates}")
+                    
                     if not coordinates or len(coordinates) < 2:
                         self.logger.warning(f"Image {img_data.get('id', 'unknown')} ignorée : coordonnées invalides")
                         continue
@@ -669,19 +684,29 @@ class EnhancedAPIService:
                             "coordinates": {
                                 "latitude": lat,
                                 "longitude": lon
-                            }
+                            },
+                            "raw_data": img_data  # Ajouter les données brutes pour débogage
                         }
                     )
                     images.append(image)
                     
                 except Exception as e:
                     self.logger.error(f"Erreur de traitement de l'image {img_data.get('id', 'unknown')}: {str(e)}")
+                    # Log de la trace complète
+                    import traceback
+                    self.logger.error(traceback.format_exc())
             
             self.logger.info(f"Récupéré {len(images)} images de Mapillary")
             return images
             
         except Exception as e:
+            # Log détaillé de l'erreur
             self.logger.error(f"Échec de récupération des images : {str(e)}")
+            
+            # Log de la trace complète
+            import traceback
+            self.logger.error(traceback.format_exc())
+            
             raise APIError(f"Échec de récupération des images Mapillary : {str(e)}")
     
     def get_image_detections(
