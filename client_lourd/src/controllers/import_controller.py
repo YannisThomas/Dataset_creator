@@ -93,14 +93,14 @@ class ImportController:
             raise ImportError(f"Import local impossible : {str(e)}")
     
     def import_from_mapillary(
-        self, 
-        bbox: Dict[str, float], 
-        dataset_name: Optional[str] = None,
-        max_images: int = 100,
-        classes: Optional[Dict[int, str]] = None
+    self, 
+    bbox: Dict[str, float], 
+    dataset_name: Optional[str] = None,
+    max_images: int = 100,
+    classes: Optional[Dict[int, str]] = None
     ) -> Dataset:
         """
-        Importe des images depuis Mapillary
+        Importe des images depuis Mapillary et gère le mapping des classes.
         
         Args:
             bbox: Bounding box géographique
@@ -121,23 +121,93 @@ class ImportController:
             if not dataset_name:
                 dataset_name = f"Mapillary_{bbox['min_lat']}_{bbox['max_lat']}_{bbox['min_lon']}_{bbox['max_lon']}"
             
-            # Créer un dataset
+            # Charger la configuration Mapillary pour le mapping des classes
+            mapillary_config = self._load_mapillary_config()
+            
+            # Utiliser le mapping des classes spécifié ou celui de la configuration
+            if classes is None:
+                classes = self._generate_classes_from_mapillary_config(mapillary_config)
+            
+            # Créer le dataset
             dataset = self.dataset_service.create_dataset(
-                name=dataset_name,
-                classes=classes or {}
+                name=dataset_name, 
+                classes=classes
             )
             
             # Importer depuis Mapillary
-            return self.import_service.import_from_mapillary(
+            dataset = self.import_service.import_from_mapillary(
                 dataset, 
                 bbox=bbox, 
                 max_images=max_images
             )
+            
+            # Mettre à jour le dataset dans la base de données
+            self.dataset_service.update_dataset(dataset)
+            
+            self.logger.info(f"Import Mapillary terminé pour {dataset_name}")
+            return dataset
         
         except Exception as e:
             self.logger.error(f"Échec de l'import Mapillary : {str(e)}")
             raise ImportError(f"Import Mapillary impossible : {str(e)}")
-    
+        
+
+    def _load_mapillary_config(self) -> Dict:
+        """
+        Charge la configuration Mapillary depuis le fichier.
+        
+        Returns:
+            Dictionnaire de configuration Mapillary
+        """
+        try:
+            import json
+            config_path = Path("config/mapillary_config.json")
+            
+            if not config_path.exists():
+                self.logger.warning(f"Fichier de configuration Mapillary non trouvé: {config_path}")
+                return {"class_mapping": {}, "sign_categories": {}}
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            return config
+        
+        except Exception as e:
+            self.logger.warning(f"Échec du chargement de la configuration Mapillary: {str(e)}")
+            return {"class_mapping": {}, "sign_categories": {}}
+
+    def _generate_classes_from_mapillary_config(self, config: Dict) -> Dict[int, str]:
+        """
+        Génère un dictionnaire de classes à partir de la configuration Mapillary.
+        
+        Args:
+            config: Configuration Mapillary
+            
+        Returns:
+            Dictionnaire de classes (id -> nom)
+        """
+        classes = {}
+        
+        # Utiliser le mapping inversé pour que les IDs de classe soient numériques
+        if "class_mapping" in config:
+            for sign_value, class_id in config["class_mapping"].items():
+                # Extraire un nom plus lisible depuis la valeur du panneau
+                # Format: {category}--{name-of-the-traffic-sign}--{appearance-group}
+                parts = sign_value.split("--")
+                if len(parts) > 1:
+                    # Utiliser le nom du panneau comme nom de classe
+                    sign_name = parts[1].replace("-", " ").title()
+                    classes[int(class_id) if isinstance(class_id, (int, str)) else class_id] = sign_name
+                else:
+                    # Utiliser la valeur complète si le format n'est pas reconnu
+                    classes[int(class_id) if isinstance(class_id, (int, str)) else class_id] = sign_value
+        
+        # Si aucune classe définie, ajouter une classe générique par défaut
+        if not classes:
+            classes[0] = "Panneau"
+        
+        return classes
+
     def import_from_config(
         self, 
         config_path: Union[str, Path]
@@ -229,13 +299,14 @@ class ImportController:
             self.logger.error(f"Échec de la recherche d'images : {str(e)}")
             raise ImportError(f"Recherche d'images impossible : {str(e)}")
     
+    
     def preview_mapillary_import(
         self, 
         bbox: Dict[str, float], 
         max_images: int = 10
     ) -> List[Image]:
         """
-        Prévisualise les images qui seront importées
+        Prévisualise les images qui seront importées depuis Mapillary.
         
         Args:
             bbox: Bounding box géographique
@@ -248,23 +319,44 @@ class ImportController:
             # Rechercher les images
             images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
             
-            # Ajouter les détails de localisation
+            # Si aucune image trouvée
+            if not images:
+                self.logger.warning("Aucune image trouvée dans la zone spécifiée")
+                return []
+            
+            # Charger la configuration Mapillary
+            mapillary_config = self._load_mapillary_config()
+            
+            # Pour chaque image, récupérer quelques annotations à titre d'exemple
             for image in images:
-                # Récupérer quelques détections pour chaque image
                 try:
+                    # Récupérer les annotations
                     annotations = self.api_service.get_image_detections(image.id)
-                    image.annotations = annotations[:3]  # Limiter à 3 annotations
+                    
+                    # Filtrer les annotations valides
+                    valid_annotations = []
+                    for annotation in annotations:
+                        # Vérifier que les coordonnées sont dans les limites (0-1)
+                        if (0 <= annotation.bbox.x <= 1 and 
+                            0 <= annotation.bbox.y <= 1 and
+                            0 < annotation.bbox.width <= 1 and 
+                            0 < annotation.bbox.height <= 1 and
+                            annotation.bbox.x + annotation.bbox.width <= 1 and
+                            annotation.bbox.y + annotation.bbox.height <= 1):
+                            valid_annotations.append(annotation)
+                    
+                    # Limiter le nombre d'annotations pour la prévisualisation
+                    image.annotations = valid_annotations[:5]  # Limiter à 5 annotations pour l'aperçu
+                    
                 except Exception as e:
                     self.logger.warning(f"Impossible de récupérer les annotations pour {image.id}: {str(e)}")
             
             self.logger.info(f"Prévisualisation Mapillary : {len(images)} images")
             return images
-        
+            
         except Exception as e:
             self.logger.error(f"Échec de la prévisualisation Mapillary : {str(e)}")
             raise ImportError(f"Prévisualisation Mapillary impossible : {str(e)}")
-        
-        # Ajouter cette méthode à la classe ImportController
 
     def import_image_to_dataset(
         self, 

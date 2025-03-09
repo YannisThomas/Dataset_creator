@@ -36,43 +36,86 @@ class ImportService:
         max_images: int = 100
     ) -> Dataset:
         """
-        Importe des images depuis Mapillary
+        Importe des images depuis Mapillary avec traitement amélioré des annotations.
         
         Args:
             dataset: Dataset de destination
             bbox: Bounding box géographique
             max_images: Nombre maximum d'images à importer
-            
+                
         Returns:
             Dataset mis à jour
         """
         try:
             # Récupérer les images de la zone
+            self.logger.info(f"Récupération d'images depuis Mapillary dans la zone: {bbox}")
             images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
             
             if not images:
+                self.logger.warning("Aucune image trouvée dans la zone spécifiée")
                 raise ImportError("Aucune image trouvée dans la zone spécifiée")
             
-            # Télécharger les annotations et les images
-            for image in images:
-                # Récupérer les détections pour chaque image
-                annotations = self.api_service.get_image_detections(image.id)
+            self.logger.info(f"Récupération de {len(images)} images depuis Mapillary")
+            
+            # Télécharger les annotations et les images avec barre de progression
+            total_annotations = 0
+            
+            for i, image in enumerate(images):
+                self.logger.debug(f"Traitement de l'image {i+1}/{len(images)}: {image.id}")
                 
-                # Ajouter les annotations à l'image
-                for annotation in annotations:
-                    image.add_annotation(annotation)
+                # Récupérer les détections pour chaque image
+                try:
+                    annotations = self.api_service.get_image_detections(image.id)
+                    
+                    if annotations:
+                        self.logger.info(f"Récupération de {len(annotations)} annotations pour l'image {image.id}")
+                        total_annotations += len(annotations)
+                        
+                        # S'assurer que les annotations sont valides avant de les ajouter
+                        valid_annotations = []
+                        for annotation in annotations:
+                            # Vérifier que les coordonnées sont dans les limites (0-1)
+                            if (0 <= annotation.bbox.x <= 1 and 
+                                0 <= annotation.bbox.y <= 1 and
+                                0 < annotation.bbox.width <= 1 and 
+                                0 < annotation.bbox.height <= 1 and
+                                annotation.bbox.x + annotation.bbox.width <= 1 and
+                                annotation.bbox.y + annotation.bbox.height <= 1):
+                                valid_annotations.append(annotation)
+                            else:
+                                self.logger.warning(
+                                    f"Annotation ignorée pour l'image {image.id} - coordonnées hors limites: "
+                                    f"x={annotation.bbox.x}, y={annotation.bbox.y}, "
+                                    f"width={annotation.bbox.width}, height={annotation.bbox.height}"
+                                )
+                        
+                        # Ajouter les annotations valides à l'image
+                        for annotation in valid_annotations:
+                            image.add_annotation(annotation)
+                            
+                        self.logger.info(f"Ajout de {len(valid_annotations)} annotations valides à l'image {image.id}")
+                    
+                except Exception as e:
+                    self.logger.warning(f"Impossible de récupérer les annotations pour {image.id}: {str(e)}")
                 
                 # Télécharger l'image
-                image_data = self.api_service.download_image(str(image.path))
-                if image_data:
-                    # Sauvegarder l'image localement
-                    local_path = dataset.path / f"{image.id}.jpg"
-                    local_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(local_path, 'wb') as f:
-                        f.write(image_data)
-                    
-                    # Mettre à jour le chemin de l'image
-                    image.path = local_path
+                try:
+                    image_data = self.api_service.download_image(str(image.path))
+                    if image_data:
+                        # Sauvegarder l'image localement
+                        local_path = dataset.path / "images"
+                        local_path.mkdir(parents=True, exist_ok=True)
+                        
+                        file_path = local_path / f"{image.id}.jpg"
+                        with open(file_path, 'wb') as f:
+                            f.write(image_data)
+                        
+                        # Mettre à jour le chemin de l'image
+                        image.path = file_path
+                    else:
+                        self.logger.warning(f"Échec du téléchargement de l'image {image.id}")
+                except Exception as e:
+                    self.logger.warning(f"Impossible de télécharger l'image {image.id}: {str(e)}")
                 
                 # Ajouter l'image au dataset
                 dataset.add_image(image)
@@ -80,11 +123,12 @@ class ImportService:
             # Valider le dataset
             validation = dataset.validate_dataset()
             if not validation["valid"]:
-                raise ValidationError(
-                    f"Validation du dataset échouée : {validation['errors']}"
-                )
+                self.logger.warning(f"Validation du dataset échouée : {validation['errors']}")
+                # On continue quand même, car certaines images peuvent être valides
             
-            self.logger.info(f"Import de {len(images)} images depuis Mapillary")
+            self.logger.info(
+                f"Import terminé : {len(images)} images et {total_annotations} annotations depuis Mapillary"
+            )
             return dataset
                 
         except Exception as e:

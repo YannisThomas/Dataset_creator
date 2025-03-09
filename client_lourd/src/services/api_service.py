@@ -716,7 +716,7 @@ class APIService:
         force_refresh: bool = False
     ) -> List[Annotation]:
         """
-        Récupère les détections pour une image spécifique.
+        Récupère les détections pour une image spécifique et les convertit en annotations.
         
         Args:
             image_id: ID de l'image
@@ -727,7 +727,7 @@ class APIService:
             Liste des annotations trouvées
         """
         params = {
-            "fields": "id,value,geometry,area,properties"
+            "fields": self.config.api.fields.get("detections", "id,value,geometry,area,properties")
         }
         
         try:
@@ -739,62 +739,67 @@ class APIService:
             )
             
             if not response or "data" not in response:
+                self.logger.warning(f"Aucune détection trouvée pour l'image {image_id}")
                 return []
             
             annotations = []
+            config = self.config_manager.get_config()
+            detection_config = config.mapillary_config.detection_mapping.conversion
+            min_confidence = detection_config.get("min_confidence", 0.5)
             
             for detection in response.get("data", []):
                 try:
-                    # Traitement amélioré des détections Mapillary
-                    # Cette partie de code est simplifiée par rapport à l'implémentation réelle
-                    # qui nécessiterait de décoder le format des détections de Mapillary
+                    # Ignorer les détections avec une confiance trop basse
+                    confidence = detection.get('properties', {}).get('confidence', 0.9)
+                    if confidence < min_confidence:
+                        continue
                     
-                    confidence = detection.get('confidence', 0.9)  # Valeur par défaut
-                    
-                    # Déterminer les coordonnées de la bounding box
-                    # Dans une implémentation réelle, vous extrairiez ces valeurs du champ 'geometry'
-                    bbox = BoundingBox(
-                        x=0.1,  # Valeurs d'exemple
-                        y=0.1,
-                        width=0.2,
-                        height=0.2
-                    )
-                    
-                    # Déterminer la classe
-                    class_id = 0  # Classe par défaut
+                    # Récupérer la valeur (type de panneau)
                     value = detection.get("value", "")
                     
-                    # Exemple simple de mapping basé sur la valeur
-                    if "traffic-sign" in value:
-                        class_id = 1
-                    elif "pole" in value:
-                        class_id = 2
-                    elif "car" in value or "vehicle" in value:
-                        class_id = 3
-                    elif "person" in value:
-                        class_id = 4
+                    # Déterminer le class_id à partir du mapping
+                    class_id = None
+                    if hasattr(config, 'mapillary_config') and hasattr(config.mapillary_config, 'class_mapping'):
+                        # Récupérer le mapping des classes
+                        class_mapping = config.mapillary_config.class_mapping
+                        # Chercher une correspondance
+                        class_id = class_mapping.get(value)
                     
-                    # Créer l'annotation
-                    annotation = Annotation(
-                        class_id=class_id,
-                        bbox=bbox,
-                        confidence=confidence,
-                        type=AnnotationType.BBOX,
-                        metadata={
-                            "mapillary_id": detection.get("id", ""),
-                            "value": value
-                        }
-                    )
+                    # Si aucune classe correspondante, utiliser une valeur par défaut
+                    if class_id is None:
+                        # Prendre la première classe disponible par défaut
+                        class_id = 0
                     
-                    annotations.append(annotation)
+                    # Extraire la géométrie
+                    geometry = detection.get('geometry', {})
+                    
+                    # Déterminer les coordonnées de la bounding box
+                    bbox = self._extract_bbox_from_detection(geometry, detection)
+                    
+                    # Si la bbox est valide, créer une annotation
+                    if bbox:
+                        annotation = Annotation(
+                            class_id=class_id,
+                            bbox=bbox,
+                            confidence=confidence,
+                            type=AnnotationType.BBOX,
+                            metadata={
+                                "mapillary_id": detection.get("id", ""),
+                                "value": value,
+                                "area": detection.get("area", 0)
+                            }
+                        )
+                        
+                        annotations.append(annotation)
                     
                 except Exception as e:
-                    self.logger.error(f"Erreur de traitement de la détection : {str(e)}")
+                    self.logger.error(f"Erreur lors du traitement de la détection : {str(e)}")
             
+            self.logger.info(f"Récupéré {len(annotations)} annotations pour l'image {image_id}")
             return annotations
             
         except Exception as e:
-            self.logger.error(f"Échec de récupération des détections : {str(e)}")
+            self.logger.error(f"Échec de la récupération des détections : {str(e)}")
             return []
     
     def download_image(
@@ -1068,3 +1073,104 @@ class APIService:
             return self.cache.clear_expired()
         else:
             return self.cache.clear()
+        
+    def _extract_bbox_from_detection(self, geometry: Dict, detection: Dict) -> Optional[BoundingBox]:
+        """
+        Extrait une bounding box à partir des données de détection Mapillary.
+        
+        Args:
+            geometry: Géométrie de la détection
+            detection: Données complètes de la détection
+            
+        Returns:
+            BoundingBox normalisée ou None si impossible à extraire
+        """
+        try:
+            # Vérifier le type de géométrie
+            if not geometry or "type" not in geometry:
+                return None
+            
+            # Cas selon le type de géométrie
+            geo_type = geometry.get("type", "").lower()
+            coordinates = geometry.get("coordinates", [])
+            
+            if geo_type == "polygon" and coordinates:
+                # Pour un polygone, trouver les min/max pour créer la bounding box
+                if not coordinates or not coordinates[0]:
+                    return None
+                    
+                # Les coordonnées d'un polygone: [[[lon1, lat1], [lon2, lat2], ...]]
+                points = coordinates[0]
+                
+                # Extraire les points x, y (longitude, latitude) du polygone
+                x_coords = [p[0] for p in points if len(p) >= 2]
+                y_coords = [p[1] for p in points if len(p) >= 2]
+                
+                if not x_coords or not y_coords:
+                    return None
+                    
+                # Trouver les min/max
+                min_x, max_x = min(x_coords), max(x_coords)
+                min_y, max_y = min(y_coords), max(y_coords)
+                
+                # Calculer la largeur et la hauteur
+                width = max_x - min_x
+                height = max_y - min_y
+                
+                # Créer la bounding box normalisée (0-1)
+                bbox = BoundingBox(
+                    x=min_x,
+                    y=min_y,
+                    width=width,
+                    height=height
+                )
+                
+                return bbox
+                
+            elif geo_type == "point" and coordinates:
+                # Pour un point, créer une petite bounding box autour
+                if len(coordinates) < 2:
+                    return None
+                    
+                x, y = coordinates[0], coordinates[1]
+                
+                # Utiliser une taille arbitraire pour la bbox autour du point
+                # Ces valeurs peuvent être ajustées selon les besoins
+                size = 0.02  # 2% de l'image
+                
+                bbox = BoundingBox(
+                    x=x - size/2,
+                    y=y - size/2,
+                    width=size,
+                    height=size
+                )
+                
+                return bbox
+            
+            # Si nous avons des propriétés avec des valeurs explicites x, y, width, height
+            properties = detection.get("properties", {})
+            if all(key in properties for key in ["x", "y", "width", "height"]):
+                bbox = BoundingBox(
+                    x=properties["x"],
+                    y=properties["y"],
+                    width=properties["width"],
+                    height=properties["height"]
+                )
+                return bbox
+                
+            # Si nous avons un champ "area" avec une valeur de bbox
+            area = detection.get("area", {})
+            if isinstance(area, dict) and all(key in area for key in ["x", "y", "width", "height"]):
+                bbox = BoundingBox(
+                    x=area["x"],
+                    y=area["y"],
+                    width=area["width"],
+                    height=area["height"]
+                )
+                return bbox
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Erreur lors de l'extraction de la bounding box: {str(e)}")
+            return None

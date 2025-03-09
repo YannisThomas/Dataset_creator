@@ -14,7 +14,7 @@ An MVC architecture application for managing, importing and exporting datasets, 
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/YannisLamamoce/Dataset_creator.git
+git clone https://github.com/Yannis/Dataset_creator.git
 cd client_lourd
 ```
 
