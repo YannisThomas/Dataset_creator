@@ -727,7 +727,7 @@ class APIService:
             Liste des annotations trouvées
         """
         params = {
-            "fields": self.config.api.fields.get("detections", "id,value,geometry,area,properties")
+            "fields": "id,value,geometry,area,properties"
         }
         
         try:
@@ -744,8 +744,12 @@ class APIService:
             
             annotations = []
             config = self.config_manager.get_config()
-            detection_config = config.mapillary_config.detection_mapping.conversion
-            min_confidence = detection_config.get("min_confidence", 0.5)
+
+            detection_config = {}
+            if isinstance(config.mapillary_config, dict) and "detection_mapping" in config.mapillary_config:
+                if isinstance(config.mapillary_config["detection_mapping"], dict) and "conversion" in config.mapillary_config["detection_mapping"]:
+                    detection_config = config.mapillary_config["detection_mapping"]["conversion"]
+            min_confidence = detection_config.get("min_confidence", 0.5) if isinstance(detection_config, dict) else 0.5
             
             for detection in response.get("data", []):
                 try:

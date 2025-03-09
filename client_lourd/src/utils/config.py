@@ -18,6 +18,9 @@ class APIConfig(BaseModel):
     request_timeout: int = Field(30, ge=1)
     max_retries: int = Field(3, ge=0)
     batch_size: int = Field(50, ge=1, le=100)
+    fields: Dict[str, str] = Field(default_factory=lambda: {
+        "detections": "id,value,geometry,area,properties"
+    })
 
 class StorageConfig(BaseModel):
     """Configuration pour le stockage"""
@@ -67,6 +70,9 @@ class Configuration(BaseModel):
     dataset: DatasetConfig
     ui: UIConfig
     debug_mode: bool = False
+    # Ajouter ces attributs manquants
+    mapillary_config: Dict[str, Any] = Field(default_factory=dict)
+    class_mapping: Dict[str, Any] = Field(default_factory=dict)
 
 class ConfigManager:
     """
@@ -161,18 +167,33 @@ class ConfigManager:
             self.logger.debug(f"Chemin du fichier de configuration : {mapillary_config_path}")
             self.logger.debug(f"Le fichier existe : {mapillary_config_path.exists()}")
             
+            # Configuration Mapillary par défaut
+            default_mapillary_config = {
+                "detection_mapping": {
+                    "conversion": {
+                        "min_confidence": 0.5
+                    }
+                },
+                "class_mapping": {}
+            }
+            
+            # Tenter de charger la configuration Mapillary
+            loaded_mapillary_config = {}
             if mapillary_config_path.exists():
                 try:
                     with open(mapillary_config_path, 'r', encoding='utf-8') as f:
-                        mapillary_config = json.load(f)
+                        loaded_mapillary_config = json.load(f)
                         
-                    self.logger.debug(f"Configuration chargée : {mapillary_config}")
+                    self.logger.debug(f"Configuration chargée : {loaded_mapillary_config}")
                     
-                    if 'api' in mapillary_config and 'mapillary_token' in mapillary_config['api']:
-                        mapillary_token = mapillary_config['api']['mapillary_token']
+                    if 'api' in loaded_mapillary_config and 'mapillary_token' in loaded_mapillary_config['api']:
+                        mapillary_token = loaded_mapillary_config['api']['mapillary_token']
                         self.logger.info(f"Token Mapillary chargé depuis le fichier. Longueur : {len(mapillary_token)}")
                 except Exception as e:
                     self.logger.error(f"Impossible de charger le token Mapillary : {str(e)}")
+            
+            # Fusionner la configuration chargée avec la configuration par défaut
+            merged_mapillary_config = {**default_mapillary_config, **loaded_mapillary_config}
             
             # Fallback sur la variable d'environnement
             if not mapillary_token:
@@ -192,7 +213,10 @@ class ConfigManager:
                     "mapillary_url": "https://graph.mapillary.com",
                     "request_timeout": 30,
                     "max_retries": 3,
-                    "batch_size": 50
+                    "batch_size": 50,
+                    "fields": {
+                        "detections": "id,value,geometry,area,properties"
+                    }
                 },
                 "storage": {
                     "base_dir": "data",
@@ -216,7 +240,10 @@ class ConfigManager:
                     "language": "fr",
                     "max_recent_datasets": 5
                 },
-                "debug_mode": bool(os.getenv("DEBUG", False))
+                "debug_mode": bool(os.getenv("DEBUG", False)),
+                # Ajouter ces attributs manquants
+                "mapillary_config": merged_mapillary_config,
+                "class_mapping": merged_mapillary_config.get("class_mapping", {})
             }
         except Exception as e:
             self.logger.error(f"Erreur lors de la génération de la configuration : {str(e)}")
@@ -228,7 +255,10 @@ class ConfigManager:
                     "mapillary_url": "https://graph.mapillary.com",
                     "request_timeout": 30,
                     "max_retries": 3,
-                    "batch_size": 50
+                    "batch_size": 50,
+                    "fields": {
+                        "detections": "id,value,geometry,area,properties"
+                    }
                 },
                 "storage": {
                     "base_dir": "data",
@@ -252,7 +282,17 @@ class ConfigManager:
                     "language": "fr",
                     "max_recent_datasets": 5
                 },
-                "debug_mode": bool(os.getenv("DEBUG", False))
+                "debug_mode": bool(os.getenv("DEBUG", False)),
+                # Ajouter ces attributs manquants dans la config minimale aussi
+                "mapillary_config": {
+                    "detection_mapping": {
+                        "conversion": {
+                            "min_confidence": 0.5
+                        }
+                    },
+                    "class_mapping": {}
+                },
+                "class_mapping": {}
             }
     
     def _merge_env_config(self, config: Dict[str, Any]) -> Dict[str, Any]:

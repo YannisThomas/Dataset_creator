@@ -307,17 +307,10 @@ class ImportController:
     ) -> List[Image]:
         """
         Prévisualise les images qui seront importées depuis Mapillary.
-        
-        Args:
-            bbox: Bounding box géographique
-            max_images: Nombre maximum d'images à prévisualiser
-            
-        Returns:
-            Liste des images prévisualisées
         """
         try:
             # Rechercher les images
-            images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
+            images = self.api_controller.get_images_in_bbox(bbox, limit=max_images)
             
             # Si aucune image trouvée
             if not images:
@@ -327,11 +320,22 @@ class ImportController:
             # Charger la configuration Mapillary
             mapillary_config = self._load_mapillary_config()
             
+            # Accéder au dictionnaire correctement
+            detection_config = {}
+            min_confidence = 0.5  # Valeur par défaut
+            
+            # Version corrigée avec notation par crochets et vérifications
+            if isinstance(mapillary_config, dict) and 'detection_mapping' in mapillary_config:
+                if isinstance(mapillary_config['detection_mapping'], dict) and 'conversion' in mapillary_config['detection_mapping']:
+                    detection_config = mapillary_config['detection_mapping']['conversion']
+                    if isinstance(detection_config, dict) and 'min_confidence' in detection_config:
+                        min_confidence = detection_config['min_confidence']
+            
             # Pour chaque image, récupérer quelques annotations à titre d'exemple
             for image in images:
                 try:
                     # Récupérer les annotations
-                    annotations = self.api_service.get_image_detections(image.id)
+                    annotations = self.api_controller.get_image_detections(image.id)
                     
                     # Filtrer les annotations valides
                     valid_annotations = []
@@ -343,7 +347,13 @@ class ImportController:
                             0 < annotation.bbox.height <= 1 and
                             annotation.bbox.x + annotation.bbox.width <= 1 and
                             annotation.bbox.y + annotation.bbox.height <= 1):
-                            valid_annotations.append(annotation)
+                            
+                            # Vérifier la confiance (si elle existe)
+                            if hasattr(annotation, 'confidence') and annotation.confidence is not None:
+                                if annotation.confidence >= min_confidence:
+                                    valid_annotations.append(annotation)
+                            else:
+                                valid_annotations.append(annotation)
                     
                     # Limiter le nombre d'annotations pour la prévisualisation
                     image.annotations = valid_annotations[:5]  # Limiter à 5 annotations pour l'aperçu
@@ -353,7 +363,7 @@ class ImportController:
             
             self.logger.info(f"Prévisualisation Mapillary : {len(images)} images")
             return images
-            
+                
         except Exception as e:
             self.logger.error(f"Échec de la prévisualisation Mapillary : {str(e)}")
             raise ImportError(f"Prévisualisation Mapillary impossible : {str(e)}")
