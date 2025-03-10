@@ -37,14 +37,27 @@ class DownloadThread(QThread):
         super().__init__(parent)
         self.url = url
         self.data = None
+        self._is_running = True
         
     def run(self):
         try:
+            if not self._is_running:
+                return
+                
             response = requests.get(self.url, timeout=10)
+            
+            if not self._is_running:
+                return
+                
             if response.status_code == 200:
                 self.data = response.content
         except Exception as e:
             print(f"Erreur de téléchargement: {str(e)}")
+    
+    def quit(self):
+        """Marque le thread comme devant s'arrêter"""
+        self._is_running = False
+        super().quit()
 
 
 class MapillaryImportDialog(BaseDialog):
@@ -92,6 +105,9 @@ class MapillaryImportDialog(BaseDialog):
         
         # Résultats de l'import
         self.import_results = None
+        
+        # Ajouter un attribut pour stocker les threads de téléchargement
+        self.download_threads = []
         
         # Charger les configurations
         self._load_config()
@@ -575,6 +591,9 @@ class MapillaryImportDialog(BaseDialog):
         """
         thread = DownloadThread(url)
         
+        # Stocker une référence au thread
+        self.download_threads.append(thread)
+        
         # Connecter le signal finished
         thread.finished.connect(lambda: self._process_downloaded_image(thread, callback))
         
@@ -595,6 +614,10 @@ class MapillaryImportDialog(BaseDialog):
             
             if not pixmap.isNull():
                 callback(pixmap)
+        
+        # Retirer le thread de la liste
+        if thread in self.download_threads:
+            self.download_threads.remove(thread)
         
         # Nettoyer le thread
         thread.deleteLater()
@@ -722,6 +745,7 @@ class MapillaryImportDialog(BaseDialog):
                 f"- {self.import_results['annotations']} annotations détectées"
             )
             
+            # Accepter le dialogue (cela ferme le dialogue)
             self.accept()
             
         except Exception as e:
@@ -783,3 +807,52 @@ class MapillaryImportDialog(BaseDialog):
             Dictionnaire des résultats ou None si l'import a échoué
         """
         return self.import_results
+        
+    def closeEvent(self, event):
+        """
+        Gère la fermeture du dialogue.
+        Arrête tous les threads en cours avant la fermeture.
+        """
+        # Arrêter tous les threads de téléchargement
+        for thread in self.download_threads:
+            if thread.isRunning():
+                thread.quit()
+                thread.wait()  # Attendre que le thread se termine
+        
+        # Vider la liste des threads
+        self.download_threads.clear()
+        
+        # Laisser l'événement se propager
+        super().closeEvent(event)
+    
+    def reject(self):
+        """
+        Gère le rejet du dialogue (bouton Annuler).
+        """
+        # Arrêter tous les threads avant de fermer
+        for thread in self.download_threads:
+            if thread.isRunning():
+                thread.quit()
+                thread.wait()
+        
+        # Vider la liste des threads
+        self.download_threads.clear()
+        
+        # Appeler la méthode parent
+        super().reject()
+    
+    def accept(self):
+        """
+        Gère l'acceptation du dialogue (bouton OK).
+        """
+        # Arrêter tous les threads avant de fermer
+        for thread in self.download_threads:
+            if thread.isRunning():
+                thread.quit()
+                thread.wait()
+        
+        # Vider la liste des threads
+        self.download_threads.clear()
+        
+        # Appeler la méthode parent
+        super().accept()

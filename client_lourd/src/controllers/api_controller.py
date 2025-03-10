@@ -145,7 +145,14 @@ class APIController:
             # Générer un chemin de sortie si non spécifié
             if output_path is None:
                 from uuid import uuid4
-                output_path = Path(f"downloads/{uuid4()}.jpg")
+                
+                # Déterminer le répertoire de téléchargement
+                if hasattr(self.dataset_service, 'get_download_dir'):
+                    download_dir = self.dataset_service.get_download_dir()
+                else:
+                    download_dir = Path("downloads")
+                    
+                output_path = download_dir / f"{uuid4()}.jpg"
             
             # Assurer l'existence du répertoire
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +163,7 @@ class APIController:
             
             self.logger.info(f"Image téléchargée : {output_path}")
             return output_path
-        
+            
         except Exception as e:
             self.logger.error(f"Échec du téléchargement de l'image : {str(e)}")
             raise APIError(f"Téléchargement de l'image impossible : {str(e)}")
@@ -183,9 +190,19 @@ class APIController:
             for image in images:
                 try:
                     # Télécharger l'image si requis
-                    if download_images and image.path and isinstance(image.path, str):
-                        local_path = self.download_image(image.path)
-                        image.path = local_path
+                    if download_images and hasattr(image, 'path'):
+                        path_str = str(image.path)  # Convertir en string pour le test
+                        
+                        # Vérifier si le chemin est une URL
+                        if path_str.startswith('http://') or path_str.startswith('https://'):
+                            try:
+                                # Télécharger l'image
+                                local_path = self.download_image(path_str)
+                                image.path = local_path
+                                self.logger.info(f"Image téléchargée: {image.id}, chemin: {image.path}")
+                            except Exception as e:
+                                self.logger.warning(f"Échec du téléchargement de l'image {image.id}: {str(e)}")
+                                # Continuer même si le téléchargement échoue
                     
                     # Récupérer les annotations si possible
                     if hasattr(image, 'id'):
@@ -199,10 +216,13 @@ class APIController:
                     dataset.add_image(image)
                 
                 except Exception as e:
-                    self.logger.warning(f"Échec de l'import de l'image : {str(e)}")
+                    self.logger.warning(f"Échec de l'import de l'image {getattr(image, 'id', 'unknown')}: {str(e)}")
             
             # Sauvegarder le dataset
-            self.dataset_service.update_dataset(dataset)
+            result = self.dataset_service.update_dataset(dataset)
+            
+            if not result:
+                self.logger.warning("Échec de la mise à jour du dataset dans la base de données")
             
             self.logger.info(f"Import de {len(images)} images terminé")
             return dataset

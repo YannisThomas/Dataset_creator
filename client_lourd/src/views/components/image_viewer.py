@@ -10,6 +10,8 @@ from typing import List, Optional, Dict, Tuple
 
 from src.models import Image, Annotation, BoundingBox
 from src.models.enums import AnnotationType
+import src.utils.logger
+from pathlib import Path
 
 class ImageViewerWidget(QWidget):
     """
@@ -663,9 +665,22 @@ class ImageViewer(QWidget):
         self.image = image
         
         try:
-            # Charger le pixmap
-            self.original_pixmap = QPixmap(str(image.path))
+            # S'assurer que le chemin est une chaîne pour QPixmap
+            path_str = str(image.path) if image.path is not None else ""
+            
+            self.logger.debug(f"Chargement de l'image: {path_str}, type: {type(image.path)}")
+            
+            # Vérifier si le fichier existe
+            if not Path(path_str).exists():
+                self.logger.error(f"Fichier image introuvable: {path_str}")
+                self.image_loaded.emit(False)
+                return False
+            
+            # Charger le pixmap avec la chaîne
+            self.original_pixmap = QPixmap(path_str)
+            
             if self.original_pixmap.isNull():
+                self.logger.error(f"Échec du chargement de l'image (pixmap null): {path_str}")
                 self.image_loaded.emit(False)
                 return False
                 
@@ -687,10 +702,10 @@ class ImageViewer(QWidget):
             return True
             
         except Exception as e:
-            print(f"Erreur lors du chargement de l'image: {str(e)}")
+            self.logger.error(f"Erreur lors du chargement de l'image: {str(e)}")
             self.image_loaded.emit(False)
             return False
-            
+    
     def set_annotations(self, annotations: List[Annotation]):
         """Définit les annotations à afficher"""
         self.annotations = annotations

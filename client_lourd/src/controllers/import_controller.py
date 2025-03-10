@@ -308,12 +308,16 @@ class ImportController:
     ) -> List[Image]:
         """
         Prévisualise les images qui seront importées depuis Mapillary.
+        
+        Args:
+            bbox: Bounding box géographique
+            max_images: Nombre maximum d'images à prévisualiser
+            
+        Returns:
+            Liste des images prévisualisées
         """
         try:
-            # Créer une référence à n'importe quel thread/worker d'arrière-plan
-            self.preview_worker = None
-
-            # Rechercher les images
+            # Rechercher les images via l'API
             images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
             
             # Si aucune image trouvée
@@ -370,6 +374,11 @@ class ImportController:
                 
         except Exception as e:
             self.logger.error(f"Échec de la prévisualisation Mapillary : {str(e)}")
+            
+            # Log de la trace complète pour le débogage
+            import traceback
+            self.logger.error(traceback.format_exc())
+            
             raise ImportError(f"Prévisualisation Mapillary impossible : {str(e)}")
 
     def import_image_to_dataset(

@@ -263,12 +263,26 @@ class DatasetView(BaseView):
             try:
                 self.logger.debug(f"Ajout de l'image {i}: {image.path}")
                 item = QListWidgetItem()
-                item.setText(image.path.name)
+                
+                # Extraire le nom du fichier du chemin
+                if isinstance(image.path, Path):
+                    # Conversion en str pour le texte à afficher
+                    file_name = image.path.name
+                    # Conversion en str pour QPixmap
+                    path_str = str(image.path)
+                else:
+                    # Si c'est déjà une chaîne de caractères
+                    path_obj = Path(image.path)
+                    file_name = path_obj.name
+                    path_str = image.path
+                
+                item.setText(file_name)
                 item.setData(Qt.ItemDataRole.UserRole, image)
                 
-                # Essayer de charger la miniature
+                # Essayer de charger la miniature avec une chaîne str
                 try:
-                    pixmap = QPixmap(str(image.path))
+                    # Utiliser explicitement str pour le chemin
+                    pixmap = QPixmap(path_str)
                     if not pixmap.isNull():
                         scaled_pixmap = pixmap.scaled(
                             64, 64,
@@ -277,19 +291,26 @@ class DatasetView(BaseView):
                         )
                         item.setIcon(QIcon(scaled_pixmap))
                     else:
-                        self.logger.warning(f"Échec du chargement du pixmap pour {image.path}")
+                        self.logger.warning(f"Échec du chargement du pixmap pour {path_str}")
                 except Exception as e:
-                    self.logger.warning(f"Échec de la création de miniature pour {image.path}: {e}")
+                    self.logger.warning(f"Échec de la création de miniature pour {path_str}: {e}")
                 
                 self.image_list.addItem(item)
             except Exception as e:
-                self.logger.error(f"Erreur lors de l'ajout de l'image {image.path} à la liste: {e}")
+                self.logger.error(f"Erreur lors de l'ajout de l'image {getattr(image, 'path', 'N/A')} à la liste: {e}")
         
         # Mettre à jour les statistiques
-        stats = self.dataset_controller.get_dataset_statistics(self.dataset)
-        if stats:
-            self.total_images_label.setText(f"Total Images: {stats['total_images']}")
-            self.total_annotations_label.setText(f"Total Annotations: {stats['total_annotations']}")
+        try:
+            stats = self.dataset_controller.get_dataset_statistics(self.dataset)
+            if stats:
+                self.total_images_label.setText(f"Total Images: {stats['total_images']}")
+                self.total_annotations_label.setText(f"Total Annotations: {stats['total_annotations']}")
+                self.classes_label.setText(f"Classes: {len(self.dataset.classes)}")
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la mise à jour des statistiques: {e}")
+            # Utiliser des statistiques basiques
+            self.total_images_label.setText(f"Total Images: {len(self.dataset.images)}")
+            self.total_annotations_label.setText("Total Annotations: N/A")
             self.classes_label.setText(f"Classes: {len(self.dataset.classes)}")
         
         self.logger.debug("Mise à jour de l'UI terminée")
@@ -300,22 +321,45 @@ class DatasetView(BaseView):
         if not items:
             return
             
-        # Récupérer l'image sélectionnée
-        image = items[0].data(Qt.ItemDataRole.UserRole)
-        if image != self.current_image:
-            self.current_image = image
+        try:
+            # Récupérer l'image sélectionnée
+            image = items[0].data(Qt.ItemDataRole.UserRole)
             
-            # Charger l'image dans le viewer
-            self.image_viewer.load_image(image)
-            
-            # Mettre à jour les métadonnées
-            self._update_metadata()
-            
-            # Mettre à jour la liste des annotations
-            self._update_annotations()
-            
-            # Émettre le signal d'image sélectionnée
-            self.image_selected.emit(image)
+            if image != self.current_image:
+                self.current_image = image
+                
+                # Debug logging pour faciliter la résolution de problèmes
+                self.logger.debug(f"Image sélectionnée: {image.id}, path type: {type(image.path)}, path: {image.path}")
+                
+                # Charger l'image dans le viewer
+                try:
+                    success = self.image_viewer.load_image(image)
+                    if not success:
+                        self.show_error(
+                            "Erreur",
+                            f"Échec du chargement de l'image: {image.path}"
+                        )
+                except Exception as e:
+                    self.logger.error(f"Erreur lors du chargement de l'image dans le viewer: {str(e)}")
+                    self.show_error(
+                        "Erreur",
+                        f"Impossible de charger l'image: {str(e)}"
+                    )
+                
+                # Mettre à jour les métadonnées
+                self._update_metadata()
+                
+                # Mettre à jour la liste des annotations
+                self._update_annotations()
+                
+                # Émettre le signal d'image sélectionnée
+                self.image_selected.emit(image)
+        except Exception as e:
+            self.logger.error(f"Erreur lors de la sélection de l'image: {str(e)}")
+            self.show_error(
+                "Erreur",
+                f"Impossible de sélectionner l'image: {str(e)}"
+            )
             
     def _on_viewer_annotation_selected(self, index: int):
         """

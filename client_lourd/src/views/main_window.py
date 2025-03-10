@@ -239,29 +239,58 @@ class MainWindow(QMainWindow):
             
     def _on_import_mapillary(self):
         """Gère l'import depuis Mapillary."""
-        # Récupérer le dataset actuel
-        current_dataset = self.dataset_view.dataset
-        
-        # Utiliser le dialogue avec le contrôleur d'import
-        dialog = MapillaryImportDialog(self, current_dataset, self.import_controller)
-        if dialog.exec():
-            try:
+        try:
+            # Récupérer le dataset actuel
+            current_dataset = self.dataset_view.dataset
+            
+            # Utiliser le dialogue avec le contrôleur d'import
+            dialog = MapillaryImportDialog(self, current_dataset, self.import_controller, self.api_controller)
+            
+            if dialog.exec():
                 # Récupérer les résultats de l'import
                 import_results = dialog.get_import_results()
-                if import_results:
-                    # Rafraîchir la vue si un dataset est déjà ouvert
-                    if current_dataset:
-                        self.dataset_view.set_dataset(current_dataset)
+                
+                if import_results and import_results.get("success", False):
+                    # Obtenir le dataset importé
+                    updated_dataset = import_results.get("dataset")
+                    
+                    if updated_dataset:
+                        if current_dataset and current_dataset.name == updated_dataset.name:
+                            # Si c'est le même dataset, forcer un rechargement pour être sûr
+                            self.logger.info(f"Rechargement du dataset {updated_dataset.name} depuis la base de données")
+                            try:
+                                # Essayer de recharger depuis la base de données
+                                refreshed_dataset = self.dataset_controller.get_dataset(updated_dataset.name)
+                                if refreshed_dataset:
+                                    updated_dataset = refreshed_dataset
+                            except Exception as e:
+                                self.logger.warning(f"Échec du rechargement du dataset depuis la base de données: {str(e)}")
+                                # Continuer avec le dataset retourné par le dialogue
+                                
+                        # Mettre à jour la vue du dataset
+                        self.dataset_view.set_dataset(updated_dataset)
+                        
                         self.statusBar().showMessage(
-                            f"Importé {len(import_results['images'])} images"
+                            f"Importé {len(import_results.get('images', []))} images avec succès",
+                            3000  # Afficher pendant 3 secondes
                         )
-            except Exception as e:
-                self.logger.error(f"Échec de l'import depuis Mapillary: {str(e)}")
-                QMessageBox.critical(
-                    self,
-                    "Erreur",
-                    f"Échec de l'import depuis Mapillary: {str(e)}"
-                )
+                    else:
+                        self.logger.warning("Aucun dataset retourné par l'import")
+                        QMessageBox.warning(
+                            self,
+                            "Avertissement",
+                            "L'import a réussi mais aucun dataset n'a été retourné"
+                        )
+                else:
+                    self.logger.warning("Échec de l'import ou résultats invalides")
+                    
+        except Exception as e:
+            self.logger.error(f"Échec de l'import depuis Mapillary: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Erreur",
+                f"Échec de l'import depuis Mapillary: {str(e)}"
+            )
                 
     def _on_import_local(self):
         """Gère l'import depuis des fichiers locaux."""

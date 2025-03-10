@@ -372,6 +372,8 @@ class DatabaseManager:
             json.dumps(class_distribution)
         ))
     
+
+
     def load_dataset(self, name: str) -> Optional[Dataset]:
         """
         Charge un dataset depuis la base de données.
@@ -423,10 +425,13 @@ class DatabaseManager:
                 # Désérialiser les métadonnées
                 image_metadata = json.loads(image_dict['metadata']) if image_dict['metadata'] else {}
                 
+                # MODIFICATION: Garder le chemin en tant que chaîne pour éviter les problèmes de validation
+                image_path = image_dict['path']
+                
                 # Créer l'objet Image
                 image = Image(
                     id=image_dict['id'],
-                    path=Path(image_dict['path']),
+                    path=image_path,  # Utiliser la chaîne au lieu de Path
                     width=image_dict['width'],
                     height=image_dict['height'],
                     source=ImageSource(image_dict['source']),
@@ -475,7 +480,7 @@ class DatabaseManager:
             
         except Exception as e:
             self.logger.error(f"Échec du chargement du dataset: {str(e)}")
-            return None
+            raise
     
     def delete_dataset(self, name: str) -> bool:
         """
