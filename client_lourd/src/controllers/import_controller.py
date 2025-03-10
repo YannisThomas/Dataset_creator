@@ -161,7 +161,8 @@ class ImportController:
         """
         try:
             import json
-            config_path = Path("config/mapillary_config.json")
+            config_dir = Path(__file__).parent.parent / "config"
+            config_path = config_dir / "mapillary_config.json"
             
             if not config_path.exists():
                 self.logger.warning(f"Fichier de configuration Mapillary non trouvé: {config_path}")
@@ -309,8 +310,11 @@ class ImportController:
         Prévisualise les images qui seront importées depuis Mapillary.
         """
         try:
+            # Créer une référence à n'importe quel thread/worker d'arrière-plan
+            self.preview_worker = None
+
             # Rechercher les images
-            images = self.api_controller.get_images_in_bbox(bbox, limit=max_images)
+            images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
             
             # Si aucune image trouvée
             if not images:
@@ -335,7 +339,7 @@ class ImportController:
             for image in images:
                 try:
                     # Récupérer les annotations
-                    annotations = self.api_controller.get_image_detections(image.id)
+                    annotations = self.api_service.get_image_detections(image.id)
                     
                     # Filtrer les annotations valides
                     valid_annotations = []

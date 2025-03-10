@@ -107,7 +107,7 @@ class MapillaryImportDialog(BaseDialog):
         
         try:
             # Chemin vers le dossier de configuration - CORRIGÉ
-            config_dir = Path("client_lourd/src/config")  # Chemin correct
+            config_dir = Path("/src/config")  # Chemin correct
             
             # Charger les zones géographiques françaises
             geo_path = config_dir / "french_geo_zones.json"
