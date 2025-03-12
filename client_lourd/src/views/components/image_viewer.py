@@ -10,8 +10,8 @@ from typing import List, Optional, Dict, Tuple
 
 from src.models import Image, Annotation, BoundingBox
 from src.models.enums import AnnotationType
-import src.utils.logger
 from pathlib import Path
+from src.utils.logger import Logger
 
 class ImageViewerWidget(QWidget):
     """
@@ -32,6 +32,11 @@ class ImageViewerWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         
+        # Initialiser le logger
+
+        self.logger = Logger()
+
+
         # État
         self.original_pixmap = None  # Pixmap original non zoomé
         self.pixmap = None  # Pixmap affiché (potentiellement zoomé)
@@ -505,7 +510,10 @@ class ImageViewer(QWidget):
     def __init__(self, parent=None):
         """Initialise le visualiseur d'images."""
         super().__init__(parent)
-        
+
+        # Initialiser le logger
+        self.logger = Logger()
+
         # État
         self.image = None  # Image actuelle
         self.original_pixmap = None  # Pixmap original non zoomé

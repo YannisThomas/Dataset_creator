@@ -38,23 +38,25 @@ class Image(BaseModel):
 
     @classmethod
     def _validate_remote_path(cls, path):
-        """Validation stricte des chemins d'images distantes"""
+        """Validation des chemins d'images distantes"""
         try:
             # Permettre certains chemins de test
             if 'pytest' in str(path) or path.startswith(('/tmp', 'C:\\Users\\', '/Users/')):
                 return path
-
-            result = urlparse(path)
-            if result.scheme not in ['http', 'https']:
-                raise ValueError(f"Schéma d'URL non supporté: {result.scheme}")
             
-            if not result.netloc:
-                raise ValueError("Format d'URL invalide")
+            # Si la chaîne est vide, retourner comme tel
+            if not path:
+                return path
             
-            if not (result.netloc and '.' in result.netloc):
-                raise ValueError("Format d'URL invalide")
+            # Ajouter https:// si aucun schéma n'est présent
+            str_path = str(path)
+            if not str_path.startswith(('http://', 'https://')):
+                str_path = 'https://' + str_path
             
-            return path
+            # Validation minimale
+            result = urlparse(str_path)
+            
+            return str_path
         
         except Exception as e:
             raise ValueError(f"Format d'URL invalide: {str(e)}")
@@ -62,12 +64,14 @@ class Image(BaseModel):
     @classmethod
     def _validate_local_path(cls, path):
         """Validation des chemins d'images locales"""
-        path_obj = Path(path)
-        
-        if not path_obj.is_file():
-            raise ValueError(f"Le chemin n'existe pas: {path}")
-        
-        return str(path_obj.resolve())
+        try:
+            path_obj = Path(path)
+            
+            # Considérer le chemin comme valide même s'il n'existe pas encore
+            # (utile lors de la création de nouveaux datasets)
+            return str(path_obj)
+        except Exception as e:
+            raise ValueError(f"Chemin local invalide: {str(e)}")
 
     def add_annotation(self, annotation: Annotation):
         """Ajoute une annotation à l'image"""

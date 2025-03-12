@@ -372,8 +372,6 @@ class DatabaseManager:
             json.dumps(class_distribution)
         ))
     
-
-
     def load_dataset(self, name: str) -> Optional[Dataset]:
         """
         Charge un dataset depuis la base de données.
@@ -425,13 +423,19 @@ class DatabaseManager:
                 # Désérialiser les métadonnées
                 image_metadata = json.loads(image_dict['metadata']) if image_dict['metadata'] else {}
                 
-                # MODIFICATION: Garder le chemin en tant que chaîne pour éviter les problèmes de validation
+                # Traiter le chemin de l'image
                 image_path = image_dict['path']
+                
+                # Ajouter un préfixe https:// aux URLs qui n'en ont pas pour les sources distantes
+                if (image_dict['source'] == ImageSource.MAPILLARY.value or 
+                    image_dict['source'] == ImageSource.REMOTE.value):
+                    if image_path and not image_path.startswith(('http://', 'https://')):
+                        image_path = f"https://{image_path}"
                 
                 # Créer l'objet Image
                 image = Image(
                     id=image_dict['id'],
-                    path=image_path,  # Utiliser la chaîne au lieu de Path
+                    path=image_path,  # Chemin corrigé avec préfixe si nécessaire
                     width=image_dict['width'],
                     height=image_dict['height'],
                     source=ImageSource(image_dict['source']),

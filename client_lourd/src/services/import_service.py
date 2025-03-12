@@ -47,6 +47,11 @@ class ImportService:
             Dataset mis à jour
         """
         try:
+            # Vérifier que le dataset n'est pas None
+            if dataset is None:
+                self.logger.error("Le dataset fourni est None")
+                raise ImportError("Dataset invalide pour l'import")
+                
             # Récupérer les images de la zone
             self.logger.info(f"Récupération d'images depuis Mapillary dans la zone: {bbox}")
             images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
@@ -100,7 +105,17 @@ class ImportService:
                 
                 # Télécharger l'image
                 try:
-                    image_data = self.api_service.download_image(str(image.path))
+                    # Vérifier que le chemin d'image est valide
+                    if not hasattr(image, 'path') or not image.path:
+                        self.logger.warning(f"Chemin d'image invalide pour {image.id}")
+                        continue
+                        
+                    # S'assurer que l'URL a un préfixe https:// si nécessaire
+                    image_path = str(image.path)
+                    if image_path and not image_path.startswith(('http://', 'https://')):
+                        image_path = f"https://{image_path}"
+                        
+                    image_data = self.api_service.download_image(image_path)
                     if image_data:
                         # Sauvegarder l'image localement
                         local_path = dataset.path / "images"
