@@ -25,6 +25,7 @@ from src.models import Dataset, Image
 from src.controllers.controller_manager import ControllerManager
 from src.views.components.image_viewer import ImageViewer
 from src.views.components.annotation_editor import AnnotationEditor
+from src.views.dialogs.metadata_dialog import MetadataDetailsDialog
 
 class DatasetView(BaseView):
     """
@@ -92,18 +93,31 @@ class DatasetView(BaseView):
         
         # Panneau gauche (liste des images)
         left_panel = self._create_left_panel()
+        left_panel.setMinimumWidth(200)
+        left_panel.setMaximumWidth(300)
         splitter.addWidget(left_panel)
         
         # Panneau central (visualisation)
         center_panel = self._create_center_panel()
+        center_panel.setMinimumWidth(400)
         splitter.addWidget(center_panel)
         
         # Panneau droit (métadonnées et annotations)
         right_panel = self._create_right_panel()
+        right_panel.setMinimumWidth(200)
+        right_panel.setMaximumWidth(300)
         splitter.addWidget(right_panel)
         
         # Définir les proportions du splitter
-        splitter.setSizes([200, 600, 200])
+        # Les valeurs représentent les pixels pour chaque section (gauche, centre, droite)
+        splitter.setSizes([250, 600, 250])
+        
+        # Définir le stretch factor pour chaque panneau
+        # 1 pour les panneaux latéraux, 3 pour le panneau central
+        splitter.setStretchFactor(0, 1)  # Panneau gauche
+        splitter.setStretchFactor(1, 3)  # Panneau central - plus de stretch
+        splitter.setStretchFactor(2, 1)  # Panneau droit
+        
         layout.addWidget(splitter)
         
         # Ajouter la barre de progression en bas
@@ -200,6 +214,12 @@ class DatasetView(BaseView):
         self.image_info_label.setWordWrap(True)
         metadata_layout.addWidget(self.image_info_label)
         
+        # Ajouter un bouton pour voir les métadonnées complètes
+        view_metadata_btn = QPushButton("Voir métadonnées complètes")
+        view_metadata_btn.clicked.connect(self._on_view_metadata)
+        metadata_layout.addWidget(view_metadata_btn)
+        
+        metadata_group.setLayout(metadata_layout)
         panel_layout.addWidget(metadata_group)
         
         # Liste des annotations
@@ -225,9 +245,18 @@ class DatasetView(BaseView):
         annotation_buttons.addWidget(delete_annotation_btn)
         
         annotations_layout.addLayout(annotation_buttons)
+        annotations_group.setLayout(annotations_layout)
         panel_layout.addWidget(annotations_group)
         
         return panel
+    
+    def _on_view_metadata(self):
+        """Affiche le dialogue des métadonnées complètes."""
+        if not self.current_image:
+            return
+            
+        dialog = MetadataDetailsDialog(self.current_image, self)
+        dialog.exec()
         
     def set_dataset(self, dataset: Dataset):
         """
@@ -397,14 +426,50 @@ class DatasetView(BaseView):
         if self.current_image.modified_at:
             metadata_html += f"<br><b>Modifié le:</b> {self.current_image.modified_at.strftime('%Y-%m-%d %H:%M:%S')}"
             
-        # Ajouter d'autres métadonnées si disponibles
+        # Ajouter d'autres métadonnées si disponibles, mais de façon limitée
         if self.current_image.metadata:
-            metadata_html += "<br><br><b>Métadonnées supplémentaires:</b><br>"
-            for key, value in self.current_image.metadata.items():
-                metadata_html += f"<b>{key}:</b> {value}<br>"
+            metadata_html += "<br><br><b>Métadonnées:</b><br>"
             
-        self.image_info_label.setText(metadata_html)
+            # Limiter le nombre de métadonnées affichées
+            important_keys = ['coordinates', 'camera_make', 'camera_model', 'captured_at', 'compass_angle']
+            count = 0
+            
+            # D'abord afficher les clés importantes
+            for key in important_keys:
+                if key in self.current_image.metadata:
+                    value = self.current_image.metadata[key]
+                    # Si c'est un dictionnaire, afficher de manière concise
+                    if isinstance(value, dict):
+                        # Pour les coordonnées, formater de manière spéciale
+                        if key == 'coordinates':
+                            lat = value.get('latitude', 'N/A')
+                            lon = value.get('longitude', 'N/A')
+                            if isinstance(lat, (float, int)) and isinstance(lon, (float, int)):
+                                metadata_html += f"<b>Position:</b> {lat:.5f}, {lon:.5f}<br>"
+                            else:
+                                metadata_html += f"<b>Position:</b> {lat}, {lon}<br>"
+                        else:
+                            # Limiter à 2-3 sous-clés importantes
+                            value_str = ", ".join([f"{k}: {v}" for k, v in list(value.items())[:2]])
+                            metadata_html += f"<b>{key}:</b> {value_str}<br>"
+                    else:
+                        metadata_html += f"<b>{key}:</b> {value}<br>"
+                    count += 1
+            
+            # Ensuite, ajouter quelques autres métadonnées si nécessaire
+            for key, value in self.current_image.metadata.items():
+                if key not in important_keys and count < 5:  # Limiter à 5 métadonnées au total
+                    if not isinstance(value, (dict, list)) or len(str(value)) < 50:
+                        metadata_html += f"<b>{key}:</b> {value}<br>"
+                        count += 1
+            
+            # Indiquer s'il y a plus de métadonnées non affichées
+            remaining = len(self.current_image.metadata) - count
+            if remaining > 0:
+                metadata_html += f"<i>Et {remaining} autres métadonnées...</i>"
         
+        self.image_info_label.setText(metadata_html)
+            
     def _update_annotations(self):
         """Met à jour la liste des annotations."""
         self.annotation_list.clear()
@@ -887,15 +952,15 @@ class DatasetView(BaseView):
             self.dataset_modified.emit(self.dataset)
         else:
             # Supprimer l'annotation si annulée
-            self.current_image
+            self.current_image.annotations.remove(annotation)
 
-    def _on_annotation_modified(self, index, rect):
+    def _on_annotation_modified(self, index, bbox):
         """
         Gère la modification d'une annotation depuis le visualiseur.
         
         Args:
             index: Index de l'annotation
-            rect: Nouveau rectangle
+            bbox: Nouveau rectangle
         """
         if not self.current_image or index < 0 or index >= len(self.current_image.annotations):
             return
