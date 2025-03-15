@@ -29,6 +29,8 @@ class ImportService:
         self.api_service = api_service or APIService()
         self.logger = logger or Logger()
     
+
+
     def import_from_mapillary(
         self, 
         dataset: Dataset, 
@@ -52,29 +54,37 @@ class ImportService:
                 self.logger.error("Le dataset fourni est None")
                 raise ImportError("Dataset invalide pour l'import")
                 
-            # Récupérer les images de la zone
+            # Récupérer les images de la zone - MODIFIÉ: filtrer uniquement les images contenant des panneaux
             self.logger.info(f"Récupération d'images depuis Mapillary dans la zone: {bbox}")
-            images = self.api_service.get_images_in_bbox(bbox, limit=max_images)
+            images = self.api_service.get_images_in_bbox(
+                bbox, 
+                limit=max_images, 
+                force_refresh=True,
+                # Filtrer uniquement les images contenant des panneaux
+                object_types=["regulatory", "warning", "information", "complementary"]
+            )
             
             if not images:
-                self.logger.warning("Aucune image trouvée dans la zone spécifiée")
-                raise ImportError("Aucune image trouvée dans la zone spécifiée")
+                self.logger.warning("Aucune image trouvée dans la zone spécifiée avec des panneaux")
+                raise ImportError("Aucune image trouvée dans la zone spécifiée avec des panneaux")
             
             self.logger.info(f"Récupération de {len(images)} images depuis Mapillary")
             
             # Télécharger les annotations et les images avec barre de progression
             total_annotations = 0
+            images_with_annotations = 0
             
             for i, image in enumerate(images):
                 self.logger.debug(f"Traitement de l'image {i+1}/{len(images)}: {image.id}")
                 
-                # Récupérer les détections pour chaque image
+                # Récupérer les détections pour chaque image - forcer le rafraîchissement
                 try:
-                    annotations = self.api_service.get_image_detections(image.id)
+                    annotations = self.api_service.get_image_detections(image.id, force_refresh=True)
                     
                     if annotations:
                         self.logger.info(f"Récupération de {len(annotations)} annotations pour l'image {image.id}")
                         total_annotations += len(annotations)
+                        images_with_annotations += 1
                         
                         # S'assurer que les annotations sont valides avant de les ajouter
                         valid_annotations = []
@@ -94,14 +104,22 @@ class ImportService:
                                     f"width={annotation.bbox.width}, height={annotation.bbox.height}"
                                 )
                         
+                        # Si aucune annotation valide, investiguer pourquoi
+                        if not valid_annotations and annotations:
+                            self.logger.warning(f"Image {image.id}: {len(annotations)} annotations récupérées mais aucune valide")
+                        
                         # Ajouter les annotations valides à l'image
                         for annotation in valid_annotations:
                             image.add_annotation(annotation)
                             
                         self.logger.info(f"Ajout de {len(valid_annotations)} annotations valides à l'image {image.id}")
+                    else:
+                        self.logger.warning(f"Aucune annotation trouvée pour l'image {image.id}")
                     
                 except Exception as e:
                     self.logger.warning(f"Impossible de récupérer les annotations pour {image.id}: {str(e)}")
+                    import traceback
+                    self.logger.warning(traceback.format_exc())
                 
                 # Télécharger l'image
                 try:
@@ -115,7 +133,9 @@ class ImportService:
                     if image_path and not image_path.startswith(('http://', 'https://')):
                         image_path = f"https://{image_path}"
                         
+                    self.logger.debug(f"Téléchargement de l'image depuis: {image_path}")
                     image_data = self.api_service.download_image(image_path)
+                    
                     if image_data:
                         # Sauvegarder l'image localement
                         local_path = dataset.path / "images"
@@ -127,10 +147,13 @@ class ImportService:
                         
                         # Mettre à jour le chemin de l'image
                         image.path = file_path
+                        self.logger.debug(f"Image sauvegardée localement: {file_path}")
                     else:
                         self.logger.warning(f"Échec du téléchargement de l'image {image.id}")
                 except Exception as e:
                     self.logger.warning(f"Impossible de télécharger l'image {image.id}: {str(e)}")
+                    import traceback
+                    self.logger.warning(traceback.format_exc())
                 
                 # Ajouter l'image au dataset
                 dataset.add_image(image)
@@ -141,13 +164,22 @@ class ImportService:
                 self.logger.warning(f"Validation du dataset échouée : {validation['errors']}")
                 # On continue quand même, car certaines images peuvent être valides
             
+            # Statistiques finales pour aider au debugging
             self.logger.info(
-                f"Import terminé : {len(images)} images et {total_annotations} annotations depuis Mapillary"
+                f"Import terminé: {len(images)} images, {total_annotations} annotations, "
+                f"{images_with_annotations} images avec annotations"
             )
+            
+            # Si aucune image n'a d'annotation, c'est probablement un problème
+            if images_with_annotations == 0 and len(images) > 0:
+                self.logger.error("AUCUNE IMAGE N'A D'ANNOTATION - Problème avec l'API ou le mapping des classes")
+            
             return dataset
                 
         except Exception as e:
             self.logger.error(f"Échec de l'import Mapillary : {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             raise ImportError(f"Échec de l'import Mapillary : {str(e)}")
     
     def import_from_local(

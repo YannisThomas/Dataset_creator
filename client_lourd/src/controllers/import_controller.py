@@ -93,11 +93,12 @@ class ImportController:
             raise ImportError(f"Import local impossible : {str(e)}")
     
     def import_from_mapillary(
-    self, 
-    bbox: Dict[str, float], 
-    dataset_name: Optional[str] = None,
-    max_images: int = 100,
-    classes: Optional[Dict[int, str]] = None
+        self, 
+        bbox: Dict[str, float], 
+        dataset_name: Optional[str] = None,
+        max_images: int = 100,
+        classes: Optional[Dict[int, str]] = None,
+        overwrite_existing: bool = False  # Nouveau paramètre
     ) -> Dataset:
         """
         Importe des images depuis Mapillary et gère le mapping des classes.
@@ -107,6 +108,7 @@ class ImportController:
             dataset_name: Nom du dataset (optionnel)
             max_images: Nombre maximum d'images à importer
             classes: Mapping des classes (optionnel)
+            overwrite_existing: Si True, écrase un dataset existant avec le même nom
             
         Returns:
             Dataset importé
@@ -120,6 +122,20 @@ class ImportController:
             # Générer un nom de dataset si non spécifié
             if not dataset_name:
                 dataset_name = f"Mapillary_{bbox['min_lat']}_{bbox['max_lat']}_{bbox['min_lon']}_{bbox['max_lon']}"
+            
+            # Vérifier si le dataset existe déjà
+            existing_dataset = self.dataset_service.get_dataset(dataset_name)
+            
+            if existing_dataset and not overwrite_existing:
+                # Générer un nouveau nom unique
+                import time
+                timestamp = int(time.time())
+                dataset_name = f"{dataset_name}_{timestamp}"
+                self.logger.info(f"Dataset existant, utilisation du nouveau nom: {dataset_name}")
+            elif existing_dataset and overwrite_existing:
+                # Supprimer le dataset existant
+                self.logger.info(f"Suppression du dataset existant: {dataset_name}")
+                self.dataset_service.delete_dataset(dataset_name)
             
             # Charger la configuration Mapillary pour le mapping des classes
             mapillary_config = self._load_mapillary_config()
@@ -146,12 +162,11 @@ class ImportController:
             
             self.logger.info(f"Import Mapillary terminé pour {dataset_name}")
             return dataset
-        
+            
         except Exception as e:
             self.logger.error(f"Échec de l'import Mapillary : {str(e)}")
-            raise ImportError(f"Import Mapillary impossible : {str(e)}")
-        
-
+            raise ImportError(f"Échec de l'import Mapillary : {str(e)}")
+    
     def _load_mapillary_config(self) -> Dict:
         """
         Charge la configuration Mapillary depuis le fichier.
