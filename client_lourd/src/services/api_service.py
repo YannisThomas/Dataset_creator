@@ -805,12 +805,12 @@ class APIService:
                     
                     # Recherche dans le mapping
                     if value in class_mapping:
-                        class_id = int(class_mapping[value])
-                        self.logger.debug(f"Classe trouvée dans le mapping: {class_id}")
+                        class_id = int(class_mapping[value]) if isinstance(class_mapping[value], (int, str)) and str(class_mapping[value]).isdigit() else class_mapping[value]
+                        self.logger.debug(f"Classe trouvée dans le mapping: '{value}' -> ID {class_id}")
                     else:
                         # Si pas trouvé, utiliser une valeur par défaut
                         class_id = 0
-                        self.logger.warning(f"Classe non trouvée pour {value}, utilisation de la classe par défaut (0)")
+                        self.logger.warning(f"Classe non trouvée pour '{value}', utilisation de la classe par défaut (0)")
                     
                     # Extraire la géométrie
                     geometry = detection.get('geometry', {})
@@ -820,6 +820,11 @@ class APIService:
                     
                     # Si la bbox est valide, créer une annotation
                     if bbox:
+                        # Créer des métadonnées enrichies pour faciliter l'affichage
+                        parts = value.split("--")
+                        sign_category = parts[0] if len(parts) > 0 else ""
+                        sign_type = parts[1].replace("-", " ").title() if len(parts) > 1 else ""
+                        
                         annotation = Annotation(
                             class_id=class_id,
                             bbox=bbox,
@@ -827,7 +832,10 @@ class APIService:
                             type=AnnotationType.BBOX,
                             metadata={
                                 "mapillary_id": detection.get("id", ""),
-                                "value": value,
+                                "value": value,        # Nom original du panneau
+                                "sign_name": value,    # Duplicate pour assurer la compatibilité
+                                "sign_category": sign_category,
+                                "sign_type": sign_type,
                                 "area": detection.get("area", 0)
                             }
                         )
@@ -1127,37 +1135,59 @@ class APIService:
     def _extract_bbox_from_detection(self, geometry: Any, detection: Dict) -> Optional[BoundingBox]:
         """
         Extrait une bounding box à partir des données de détection Mapillary.
+        Avec priorité sur les données les plus précises.
         
         Args:
-            geometry: Géométrie de la détection (peut être dict, str ou autre)
+            geometry: Géométrie de la détection
             detection: Données complètes de la détection
             
         Returns:
             BoundingBox normalisée ou None si impossible à extraire
         """
         try:
-            # Log détaillé pour le debugging
-            self.logger.debug(f"Tentative d'extraction de bbox à partir de detection: {detection.get('id', 'inconnu')}")
-            self.logger.debug(f"Type de géométrie reçu: {type(geometry)}")
+            self.logger.debug(f"Extraction bbox pour détection {detection.get('id', 'unknown')}")
             
-            # Vérifier si geometry est une chaîne, ce qui semble être le cas d'après les erreurs
-            if isinstance(geometry, str):
-                self.logger.debug(f"Géométrie sous forme de chaîne: {geometry[:100]}...")
-                # Essayer de parser la géométrie en JSON si c'est une chaîne
-                try:
-                    import json
-                    geometry = json.loads(geometry)
-                    self.logger.debug("Géométrie convertie de str à dict avec succès")
-                except json.JSONDecodeError:
-                    self.logger.warning("La géométrie n'est pas un JSON valide")
-                    # Continuer avec les autres méthodes de fallback
+            # PRIORITÉ 1: Extraction depuis "area" (le plus fiable)
+            area = detection.get("area", {})
+            if isinstance(area, dict) and all(key in area for key in ["x", "y", "width", "height"]):
+                x = float(area["x"])
+                y = float(area["y"])
+                width = float(area["width"])
+                height = float(area["height"])
+                
+                # Vérifier les limites
+                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
+                    bbox = BoundingBox(
+                        x=x,
+                        y=y,
+                        width=width,
+                        height=height
+                    )
+                    self.logger.debug(f"BoundingBox extraite de area: {bbox}")
+                    return bbox
             
-            # PREMIÈRE TENTATIVE: Vérifier s'il existe un champ "segmentation" ou "segmentations"
+            # PRIORITÉ 2: Extraction depuis "properties"
+            properties = detection.get("properties", {})
+            if isinstance(properties, dict) and all(key in properties for key in ["x", "y", "width", "height"]):
+                x = float(properties["x"])
+                y = float(properties["y"])
+                width = float(properties["width"])
+                height = float(properties["height"])
+                
+                # Vérifier les limites
+                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
+                    bbox = BoundingBox(
+                        x=x,
+                        y=y,
+                        width=width,
+                        height=height
+                    )
+                    self.logger.debug(f"BoundingBox extraite de properties: {bbox}")
+                    return bbox
+            
+            # PRIORITÉ 3: Extraction depuis "segmentation" ou "segmentations"
             segmentations = detection.get("segmentations", detection.get("segmentation", []))
             if segmentations and isinstance(segmentations, list) and len(segmentations) > 0:
-                self.logger.debug(f"Utilisation des segmentations: {segmentations}")
-                
-                # Trouver les coordonnées min/max parmi tous les points de la segmentation
                 all_x = []
                 all_y = []
                 
@@ -1190,142 +1220,48 @@ class APIService:
                             width=width,
                             height=height
                         )
-                        self.logger.debug(f"BoundingBox créée à partir des segmentations: {bbox}")
+                        self.logger.debug(f"BoundingBox extraite des segmentations: {bbox}")
                         return bbox
             
-            # DEUXIÈME TENTATIVE: Utiliser le polygone de la géométrie si disponible et si c'est un dict
+            # PRIORITÉ 4: Extraction depuis la géométrie si c'est un polygone
             if isinstance(geometry, dict) and geometry.get("type", "").lower() == "polygon" and "coordinates" in geometry:
-                # Pour un polygone, trouver les min/max pour créer la bounding box
-                if not geometry["coordinates"] or not geometry["coordinates"][0]:
-                    self.logger.warning("Coordonnées de polygone invalides")
-                else:
-                    # Les coordonnées d'un polygone: [[[lon1, lat1], [lon2, lat2], ...]]
-                    points = geometry["coordinates"][0]
-                    
-                    # Extraire les points x, y (longitude, latitude) du polygone
-                    x_coords = [p[0] for p in points if len(p) >= 2]
-                    y_coords = [p[1] for p in points if len(p) >= 2]
-                    
-                    if x_coords and y_coords:
-                        # Trouver les min/max
-                        min_x, max_x = min(x_coords), max(x_coords)
-                        min_y, max_y = min(y_coords), max(y_coords)
+                coordinates = geometry.get("coordinates", [])
+                if coordinates and isinstance(coordinates, list) and len(coordinates) > 0:
+                    points = coordinates[0]
+                    if points and isinstance(points, list) and len(points) > 0:
+                        # Extraire les points x, y du polygone
+                        x_coords = [p[0] for p in points if len(p) >= 2]
+                        y_coords = [p[1] for p in points if len(p) >= 2]
                         
-                        # Calculer la largeur et la hauteur
-                        width = max_x - min_x
-                        height = max_y - min_y
-                        
-                        # Vérifier les dimensions
-                        if width > 0 and height > 0:
-                            # Assurer que les valeurs sont dans les limites [0,1]
-                            min_x = max(0, min(min_x, 1))
-                            min_y = max(0, min(min_y, 1))
-                            width = min(width, 1 - min_x)
-                            height = min(height, 1 - min_y)
+                        if x_coords and y_coords:
+                            # Trouver les min/max
+                            min_x, max_x = min(x_coords), max(x_coords)
+                            min_y, max_y = min(y_coords), max(y_coords)
                             
-                            bbox = BoundingBox(
-                                x=min_x,
-                                y=min_y,
-                                width=width,
-                                height=height
-                            )
-                            self.logger.debug(f"BoundingBox créée à partir du polygone: {bbox}")
-                            return bbox
+                            # Calculer la largeur et la hauteur
+                            width = max_x - min_x
+                            height = max_y - min_y
+                            
+                            # Vérifier les dimensions
+                            if width > 0 and height > 0:
+                                # Assurer que les valeurs sont dans les limites [0,1]
+                                min_x = max(0, min(min_x, 1))
+                                min_y = max(0, min(min_y, 1))
+                                width = min(width, 1 - min_x)
+                                height = min(height, 1 - min_y)
+                                
+                                bbox = BoundingBox(
+                                    x=min_x,
+                                    y=min_y,
+                                    width=width,
+                                    height=height
+                                )
+                                self.logger.debug(f"BoundingBox extraite du polygone: {bbox}")
+                                return bbox
             
-            # TROISIÈME TENTATIVE: Utiliser le point de la géométrie si disponible et si c'est un dict
-            if isinstance(geometry, dict) and geometry.get("type", "").lower() == "point" and "coordinates" in geometry:
-                # Pour un point, créer une petite bounding box autour
-                coordinates = geometry["coordinates"]
-                if len(coordinates) >= 2:
-                    x, y = coordinates[0], coordinates[1]
-                    
-                    # Vérifier les limites (0-1)
-                    if 0 <= x <= 1 and 0 <= y <= 1:
-                        # Utiliser une taille appropriée pour la bbox autour du point
-                        size = 0.05  # 5% de l'image
-                        
-                        # Calculer les coordonnées en vérifiant les limites
-                        bbox_x = max(0, x - size/2)
-                        bbox_y = max(0, y - size/2)
-                        bbox_width = min(size, 1 - bbox_x)
-                        bbox_height = min(size, 1 - bbox_y)
-                        
-                        bbox = BoundingBox(
-                            x=bbox_x,
-                            y=bbox_y,
-                            width=bbox_width,
-                            height=bbox_height
-                        )
-                        self.logger.debug(f"BoundingBox créée à partir du point: {bbox}")
-                        return bbox
-            
-            # QUATRIÈME TENTATIVE: Vérifier les propriétés ou l'area
-            properties = detection.get("properties", {})
-            if all(key in properties for key in ["x", "y", "width", "height"]):
-                x = properties["x"]
-                y = properties["y"]
-                width = properties["width"]
-                height = properties["height"]
-                
-                # Vérifier les limites
-                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
-                    bbox = BoundingBox(
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height
-                    )
-                    self.logger.debug(f"BoundingBox créée à partir des propriétés: {bbox}")
-                    return bbox
-            
-            # CINQUIÈME TENTATIVE: Vérifier le champ area
-            area = detection.get("area", {})
-            if isinstance(area, dict) and all(key in area for key in ["x", "y", "width", "height"]):
-                x = area["x"]
-                y = area["y"]
-                width = area["width"]
-                height = area["height"]
-                
-                # Vérifier les limites
-                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
-                    bbox = BoundingBox(
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height
-                    )
-                    self.logger.debug(f"BoundingBox créée à partir de area: {bbox}")
-                    return bbox
-            
-            # SIXIÈME TENTATIVE: Utiliser les values si disponibles
-            if "values" in detection and isinstance(detection["values"], dict):
-                values = detection["values"]
-                if all(key in values for key in ["x", "y", "width", "height"]):
-                    x = values["x"]
-                    y = values["y"]
-                    width = values["width"]
-                    height = values["height"]
-                    
-                    # Vérifier les limites
-                    if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
-                        bbox = BoundingBox(
-                            x=x,
-                            y=y,
-                            width=width,
-                            height=height
-                        )
-                        self.logger.debug(f"BoundingBox créée à partir de values: {bbox}")
-                        return bbox
-            
-            # DERNIÈRE TENTATIVE: FALLBACK - Créer une bounding box artificielle centrée
-            # Puisque nous savons qu'il y a un panneau mais pas sa position exacte,
-            # nous créons une bbox centrée de taille moyenne
-            self.logger.debug("Utilisation d'une bounding box artificielle (fallback)")
-            
-            # Créer une bbox au centre, de taille 25% de l'image
-            size = 0.25  # 25% de l'image
-            
-            # Centrer la bbox
+            # SOLUTION DE REPLI: Si toutes les méthodes ont échoué, créer une bounding box artificielle
+            # Mais la rendre plus visible en utilisant 40% de l'image
+            size = 0.4  # 40% de l'image
             bbox_x = (1 - size) / 2
             bbox_y = (1 - size) / 2
             
@@ -1336,7 +1272,7 @@ class APIService:
                 height=size
             )
             
-            self.logger.debug(f"BoundingBox artificielle créée: {bbox}")
+            self.logger.warning(f"Création d'une bounding box artificielle: {bbox}")
             return bbox
                 
         except Exception as e:
@@ -1345,23 +1281,13 @@ class APIService:
             self.logger.error(traceback.format_exc())
             
             # Même en cas d'erreur, créer une bbox par défaut
-            try:
-                # Créer une bbox au centre, de taille 25% de l'image
-                size = 0.25  # 25% de l'image
-                
-                # Centrer la bbox
-                bbox_x = (1 - size) / 2
-                bbox_y = (1 - size) / 2
-                
-                bbox = BoundingBox(
-                    x=bbox_x,
-                    y=bbox_y,
-                    width=size,
-                    height=size
-                )
-                
-                self.logger.debug(f"BoundingBox artificielle créée après erreur: {bbox}")
-                return bbox
-            except:
-                # Si tout échoue, retourner None
-                return None
+            size = 0.4  # 40% de l'image
+            bbox_x = (1 - size) / 2
+            bbox_y = (1 - size) / 2
+            
+            return BoundingBox(
+                x=bbox_x,
+                y=bbox_y,
+                width=size,
+                height=size
+            )

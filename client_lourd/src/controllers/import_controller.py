@@ -98,7 +98,7 @@ class ImportController:
         dataset_name: Optional[str] = None,
         max_images: int = 100,
         classes: Optional[Dict[int, str]] = None,
-        overwrite_existing: bool = False  # Nouveau paramètre
+        overwrite_existing: bool = False
     ) -> Dataset:
         """
         Importe des images depuis Mapillary et gère le mapping des classes.
@@ -139,16 +139,22 @@ class ImportController:
             
             # Charger la configuration Mapillary pour le mapping des classes
             mapillary_config = self._load_mapillary_config()
+            self.logger.info(f"Configuration Mapillary chargée avec {len(mapillary_config.get('class_mapping', {}))} classes")
             
             # Utiliser le mapping des classes spécifié ou celui de la configuration
             if classes is None:
                 classes = self._generate_classes_from_mapillary_config(mapillary_config)
+                self.logger.info(f"Mapping de classes généré: {len(classes)} classes")
             
-            # Créer le dataset
+            # Créer le dataset avec TOUTES les classes Mapillary
+            # Cette modification est cruciale pour résoudre les problèmes de classes manquantes
             dataset = self.dataset_service.create_dataset(
                 name=dataset_name, 
                 classes=classes
             )
+            
+            # Enregistrer les classes dans le dataset pour le débogage
+            self.logger.info(f"Dataset créé avec {len(dataset.classes)} classes")
             
             # Importer depuis Mapillary
             dataset = self.import_service.import_from_mapillary(
@@ -156,6 +162,25 @@ class ImportController:
                 bbox=bbox, 
                 max_images=max_images
             )
+            
+            # Validation après import
+            validation = dataset.validate_dataset()
+            if not validation["valid"]:
+                missing_classes = set()
+                for image in dataset.images:
+                    for ann in image.annotations:
+                        if ann.class_id not in dataset.classes:
+                            missing_classes.add(ann.class_id)
+                
+                if missing_classes:
+                    self.logger.warning(f"Classes manquantes après import: {missing_classes}")
+                    
+                    # Résolution automatique: ajouter les classes manquantes
+                    for class_id in missing_classes:
+                        # Si le class_id est dans le mapping, récupérer son nom
+                        class_name = self._find_class_name_for_id(class_id, mapillary_config)
+                        dataset.classes[class_id] = class_name
+                        self.logger.info(f"Classe manquante ajoutée: {class_id} -> {class_name}")
             
             # Mettre à jour le dataset dans la base de données
             self.dataset_service.update_dataset(dataset)
@@ -166,7 +191,40 @@ class ImportController:
         except Exception as e:
             self.logger.error(f"Échec de l'import Mapillary : {str(e)}")
             raise ImportError(f"Échec de l'import Mapillary : {str(e)}")
-    
+
+    def _find_class_name_for_id(self, class_id: int, config: Dict) -> str:
+        """
+        Trouve le nom d'une classe à partir de son ID dans la configuration Mapillary.
+        
+        Args:
+            class_id: ID de la classe à rechercher
+            config: Configuration Mapillary
+            
+        Returns:
+            Nom de la classe ou un nom générique
+        """
+        # Rechercher dans le mapping inversé
+        if "class_mapping" in config:
+            for sign_value, sign_id in config["class_mapping"].items():
+                if int(sign_id) == class_id:
+                    # Extraction d'un nom plus lisible
+                    parts = sign_value.split("--")
+                    category = parts[0] if len(parts) > 0 else "Unknown"
+                    category_fr = config.get("sign_categories", {}).get(category, category.capitalize())
+                    
+                    if len(parts) > 1:
+                        sign_type = parts[1].replace("-", " ").title()
+                        if len(parts) > 2:
+                            variant = parts[2].upper()
+                            return f"{category_fr}: {sign_type} ({variant})"
+                        else:
+                            return f"{category_fr}: {sign_type}"
+                    
+                    return sign_value
+        
+        # Nom générique pour les autres classes
+        return f"Classe {class_id}"
+
     def _load_mapillary_config(self) -> Dict:
         """
         Charge la configuration Mapillary depuis le fichier.
@@ -195,6 +253,7 @@ class ImportController:
     def _generate_classes_from_mapillary_config(self, config: Dict) -> Dict[int, str]:
         """
         Génère un dictionnaire de classes à partir de la configuration Mapillary.
+        Création de noms de classes plus lisibles.
         
         Args:
             config: Configuration Mapillary
@@ -203,27 +262,53 @@ class ImportController:
             Dictionnaire de classes (id -> nom)
         """
         classes = {}
+        sign_categories = {
+            "regulatory": "Réglementaire",
+            "warning": "Danger",
+            "information": "Information",
+            "complementary": "Complémentaire"
+        }
         
-        # Utiliser le mapping inversé pour que les IDs de classe soient numériques
+        # Récupérer le mapping des classes depuis la configuration
         if "class_mapping" in config:
             for sign_value, class_id in config["class_mapping"].items():
-                # Extraire un nom plus lisible depuis la valeur du panneau
-                # Format: {category}--{name-of-the-traffic-sign}--{appearance-group}
+                # Convertir class_id en entier si c'est une chaîne numérique
+                if isinstance(class_id, str) and class_id.isdigit():
+                    class_id = int(class_id)
+                
+                # Créer un nom lisible à partir de la valeur du panneau
+                # Format typique: "regulatory--stop--g1"
                 parts = sign_value.split("--")
-                if len(parts) > 1:
-                    # Utiliser le nom du panneau comme nom de classe
-                    sign_name = parts[1].replace("-", " ").title()
-                    classes[int(class_id) if isinstance(class_id, (int, str)) else class_id] = sign_name
+                
+                if len(parts) >= 2:
+                    # Récupérer la catégorie (regulatory, warning, etc.)
+                    category = parts[0]
+                    category_fr = sign_categories.get(category, category.capitalize())
+                    
+                    # Récupérer le nom du panneau et le formater joliment
+                    sign_type = parts[1].replace("-", " ").title()
+                    
+                    # Version sans groupe (g1, g2, etc.)
+                    if len(parts) >= 3:
+                        # On peut ignorer le groupe ou l'inclure selon préférence
+                        variant = parts[2].upper()
+                        readable_name = f"{category_fr}: {sign_type} ({variant})"
+                    else:
+                        readable_name = f"{category_fr}: {sign_type}"
+                    
+                    classes[class_id] = readable_name
                 else:
-                    # Utiliser la valeur complète si le format n'est pas reconnu
-                    classes[int(class_id) if isinstance(class_id, (int, str)) else class_id] = sign_value
+                    # Fallback si le format n'est pas reconnu
+                    classes[class_id] = sign_value
         
-        # Si aucune classe définie, ajouter une classe générique par défaut
+        # Si aucune classe définie ou mapping vide, ajouter une classe générique
         if not classes:
             classes[0] = "Panneau"
         
+        # Loguer le nombre de classes générées pour debugging
+        self.logger.info(f"Mapping de classes généré: {len(classes)} classes")
+        
         return classes
-
     def import_from_config(
         self, 
         config_path: Union[str, Path]
