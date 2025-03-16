@@ -35,7 +35,8 @@ class ImportService:
         self, 
         dataset: Dataset, 
         bbox: Dict[str, float], 
-        max_images: int = 100
+        max_images: int = 100,
+        include_images_without_annotations: bool = False
     ) -> Dataset:
         """
         Importe des images depuis Mapillary avec traitement amélioré des annotations.
@@ -44,6 +45,7 @@ class ImportService:
             dataset: Dataset de destination
             bbox: Bounding box géographique
             max_images: Nombre maximum d'images à importer
+            include_images_without_annotations: Si True, inclut les images sans annotations
                 
         Returns:
             Dataset mis à jour
@@ -74,17 +76,25 @@ class ImportService:
             total_annotations = 0
             images_with_annotations = 0
             
+            # Créer les répertoires nécessaires
+            images_dir = dataset.path / "images"
+            images_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Statistiques pour les erreurs de coordonnées
+            invalid_coords_count = 0
+            
             for i, image in enumerate(images):
                 self.logger.debug(f"Traitement de l'image {i+1}/{len(images)}: {image.id}")
                 
                 # Récupérer les détections pour chaque image - forcer le rafraîchissement
+                has_valid_annotations = False
+                
                 try:
                     annotations = self.api_service.get_image_detections(image.id, force_refresh=True)
                     
                     if annotations:
                         self.logger.info(f"Récupération de {len(annotations)} annotations pour l'image {image.id}")
                         total_annotations += len(annotations)
-                        images_with_annotations += 1
                         
                         # S'assurer que les annotations sont valides avant de les ajouter
                         valid_annotations = []
@@ -98,6 +108,7 @@ class ImportService:
                                 annotation.bbox.y + annotation.bbox.height <= 1):
                                 valid_annotations.append(annotation)
                             else:
+                                invalid_coords_count += 1
                                 self.logger.warning(
                                     f"Annotation ignorée pour l'image {image.id} - coordonnées hors limites: "
                                     f"x={annotation.bbox.x}, y={annotation.bbox.y}, "
@@ -109,10 +120,14 @@ class ImportService:
                             self.logger.warning(f"Image {image.id}: {len(annotations)} annotations récupérées mais aucune valide")
                         
                         # Ajouter les annotations valides à l'image
-                        for annotation in valid_annotations:
-                            image.add_annotation(annotation)
-                            
-                        self.logger.info(f"Ajout de {len(valid_annotations)} annotations valides à l'image {image.id}")
+                        if valid_annotations:
+                            has_valid_annotations = True
+                            for annotation in valid_annotations:
+                                image.add_annotation(annotation)
+                                
+                            images_with_annotations += 1
+                            self.logger.info(f"Ajout de {len(valid_annotations)} annotations valides à l'image {image.id}")
+                        
                     else:
                         self.logger.warning(f"Aucune annotation trouvée pour l'image {image.id}")
                     
@@ -120,6 +135,11 @@ class ImportService:
                     self.logger.warning(f"Impossible de récupérer les annotations pour {image.id}: {str(e)}")
                     import traceback
                     self.logger.warning(traceback.format_exc())
+                
+                # Si l'image n'a pas d'annotations valides et qu'on ne veut pas inclure ces images, passer
+                if not has_valid_annotations and not include_images_without_annotations:
+                    self.logger.info(f"Image {image.id} ignorée: pas d'annotations valides")
+                    continue
                 
                 # Télécharger l'image
                 try:
@@ -137,26 +157,43 @@ class ImportService:
                     image_data = self.api_service.download_image(image_path)
                     
                     if image_data:
-                        # Sauvegarder l'image localement
-                        local_path = dataset.path / "images"
-                        local_path.mkdir(parents=True, exist_ok=True)
+                        # Sauvegarder l'image localement avec gestion des fichiers existants
+                        file_path = images_dir / f"{image.id}.jpg"
                         
-                        file_path = local_path / f"{image.id}.jpg"
-                        with open(file_path, 'wb') as f:
-                            f.write(image_data)
+                        # Ne pas réécrire le fichier s'il existe déjà et a la bonne taille
+                        if file_path.exists() and file_path.stat().st_size > 0:
+                            self.logger.debug(f"Image déjà téléchargée: {file_path}")
+                        else:
+                            with open(file_path, 'wb') as f:
+                                f.write(image_data)
+                            self.logger.debug(f"Image sauvegardée localement: {file_path}")
                         
-                        # Mettre à jour le chemin de l'image
+                        # Mettre à jour le chemin de l'image vers le chemin local
                         image.path = file_path
-                        self.logger.debug(f"Image sauvegardée localement: {file_path}")
+                        
+                        # Vérifier les dimensions réelles de l'image
+                        try:
+                            from PIL import Image as PILImage
+                            with PILImage.open(file_path) as img:
+                                image.width, image.height = img.size
+                                self.logger.debug(f"Dimensions réelles de l'image: {image.width}x{image.height}")
+                        except Exception as e:
+                            self.logger.warning(f"Impossible de déterminer les dimensions de l'image: {str(e)}")
                     else:
                         self.logger.warning(f"Échec du téléchargement de l'image {image.id}")
+                        continue  # Ne pas ajouter l'image au dataset si le téléchargement a échoué
                 except Exception as e:
                     self.logger.warning(f"Impossible de télécharger l'image {image.id}: {str(e)}")
                     import traceback
                     self.logger.warning(traceback.format_exc())
+                    continue  # Ne pas ajouter l'image au dataset si une erreur s'est produite
                 
                 # Ajouter l'image au dataset
                 dataset.add_image(image)
+            
+            # Validation et journalisation des statistiques
+            if invalid_coords_count > 0:
+                self.logger.warning(f"Total des annotations avec coordonnées invalides: {invalid_coords_count}")
             
             # Valider le dataset
             validation = dataset.validate_dataset()
@@ -166,12 +203,12 @@ class ImportService:
             
             # Statistiques finales pour aider au debugging
             self.logger.info(
-                f"Import terminé: {len(images)} images, {total_annotations} annotations, "
+                f"Import terminé: {len(dataset.images)} images ajoutées, {total_annotations} annotations, "
                 f"{images_with_annotations} images avec annotations"
             )
             
             # Si aucune image n'a d'annotation, c'est probablement un problème
-            if images_with_annotations == 0 and len(images) > 0:
+            if images_with_annotations == 0 and len(dataset.images) > 0:
                 self.logger.error("AUCUNE IMAGE N'A D'ANNOTATION - Problème avec l'API ou le mapping des classes")
             
             return dataset

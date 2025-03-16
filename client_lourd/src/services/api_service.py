@@ -723,8 +723,8 @@ class APIService:
         force_refresh: bool = False
     ) -> List[Annotation]:
         """
-        Récupère les détections pour une image spécifique et les convertit en annotations.
-        Filtre les détections pour ne garder que les panneaux de signalisation.
+        Récupère les détections de panneaux de signalisation pour une image spécifique et décode 
+        correctement les coordonnées.
         
         Args:
             image_id: ID de l'image
@@ -732,18 +732,18 @@ class APIService:
             force_refresh: Forcer le rafraîchissement du cache
             
         Returns:
-            Liste des annotations trouvées
+            Liste des annotations de panneaux de signalisation trouvées
         """
-        # Paramètres spécifiques pour les panneaux de signalisation
+        # Paramètres spécifiques avec les bons champs et filtres
         params = {
-            "fields": "id,value,geometry,area,properties",
-            # Filtrer uniquement les objets de type panneau
-            "filter_values": "regulatory,warning,information,complementary"
+            "fields": "id,value,geometry,properties",
+            # Filtrer uniquement les panneaux de signalisation
+            "values": "regulatory--*,warning--*,information--*,complementary--*"
         }
         
         try:
             # Appel API avec filtrage des valeurs
-            self.logger.debug(f"Récupération des détections pour l'image {image_id} avec filtres: {params}")
+            self.logger.info(f"Récupération des détections de panneaux pour l'image {image_id}")
             
             response = self._make_request(
                 f"{image_id}/detections", 
@@ -756,8 +756,9 @@ class APIService:
                 self.logger.warning(f"Aucune détection trouvée pour l'image {image_id}")
                 return []
             
-            # Log détaillé pour le débogage
-            self.logger.debug(f"Nombre de détections reçues: {len(response.get('data', []))}")
+            # Log pour débogage
+            detections_count = len(response.get('data', []))
+            self.logger.debug(f"Nombre de détections reçues: {detections_count}")
             
             annotations = []
             config = self.config_manager.get_config()
@@ -778,22 +779,46 @@ class APIService:
             # Valeur de confiance minimale (0.3 par défaut)
             min_confidence = detection_config.get('min_confidence', 0.3)
             
+            # Statistiques pour le débogage
+            filtered_out_types = {}
+            
+            # Importer les bibliothèques nécessaires pour le décodage
+            import base64
+            import mapbox_vector_tile
+            
             for detection in response.get("data", []):
                 try:
                     # Récupérer la valeur (type de panneau)
                     value = detection.get("value", "")
                     self.logger.debug(f"Traitement de la détection: {value}")
                     
-                    # FILTRE SUPPLÉMENTAIRE: Ignorer les objets qui ne sont pas des panneaux
-                    if not (value.startswith("regulatory--") or 
-                            value.startswith("warning--") or 
-                            value.startswith("information--") or 
-                            value.startswith("complementary--")):
+                    # FILTRE SUPPLÉMENTAIRE: Vérifier si c'est un panneau de signalisation
+                    valid_prefixes = ["regulatory--", "warning--", "information--", "complementary--"]
+                    if not any(value.startswith(prefix) for prefix in valid_prefixes):
+                        # Compter les types filtrés pour analyse
+                        type_prefix = value.split('--')[0] if '--' in value else value
+                        filtered_out_types[type_prefix] = filtered_out_types.get(type_prefix, 0) + 1
                         self.logger.debug(f"Ignorer l'objet non-panneau: {value}")
                         continue
                     
-                    # Récupérer la confiance
-                    confidence = detection.get('properties', {}).get('confidence', 0.9)
+                    # Récupérer la confiance depuis les propriétés
+                    properties = detection.get('properties', {})
+                    confidence = None
+                    
+                    # Essayer différentes clés possibles pour la confiance
+                    confidence_keys = ['confidence', 'detection_score', 'score', 'probability']
+                    for key in confidence_keys:
+                        if key in properties and properties[key] is not None:
+                            try:
+                                confidence = float(properties[key])
+                                break
+                            except (ValueError, TypeError):
+                                pass
+                    
+                    # Si aucune confiance trouvée, utiliser une valeur par défaut
+                    if confidence is None:
+                        confidence = 0.8  # Valeur par défaut raisonnable
+                        self.logger.debug(f"Confiance non trouvée pour {value}, utilisation de la valeur par défaut: {confidence}")
                     
                     # Ignorer les détections avec une confiance trop basse
                     if confidence < min_confidence:
@@ -812,45 +837,111 @@ class APIService:
                         class_id = 0
                         self.logger.warning(f"Classe non trouvée pour '{value}', utilisation de la classe par défaut (0)")
                     
-                    # Extraire la géométrie
-                    geometry = detection.get('geometry', {})
+                    # Récupérer et décoder les coordonnées de segmentation
+                    geometry_base64 = detection.get("geometry")
+                    if not geometry_base64:
+                        self.logger.warning(f"Détection sans géométrie pour {value}")
+                        continue
                     
-                    # Déterminer les coordonnées de la bounding box
-                    bbox = self._extract_bbox_from_detection(geometry, detection)
-                    
-                    # Si la bbox est valide, créer une annotation
-                    if bbox:
-                        # Créer des métadonnées enrichies pour faciliter l'affichage
-                        parts = value.split("--")
-                        sign_category = parts[0] if len(parts) > 0 else ""
-                        sign_type = parts[1].replace("-", " ").title() if len(parts) > 1 else ""
+                    # Décodage selon la documentation Mapillary
+                    try:
+                        decoded_data = base64.decodebytes(geometry_base64.encode('utf-8'))
+                        detection_geometry = mapbox_vector_tile.decode(decoded_data)
                         
-                        annotation = Annotation(
-                            class_id=class_id,
-                            bbox=bbox,
-                            confidence=confidence,
-                            type=AnnotationType.BBOX,
-                            metadata={
-                                "mapillary_id": detection.get("id", ""),
-                                "value": value,        # Nom original du panneau
-                                "sign_name": value,    # Duplicate pour assurer la compatibilité
-                                "sign_category": sign_category,
-                                "sign_type": sign_type,
-                                "area": detection.get("area", 0)
-                            }
-                        )
+                        # Le format est généralement: {'mpy-or': {'extent': 4096, 'features': [{'geometry': ...}]}}
+                        if 'mpy-or' not in detection_geometry:
+                            self.logger.warning(f"Format inattendu pour la géométrie: {detection_geometry}")
+                            continue
+                            
+                        tile_layer = detection_geometry['mpy-or']
+                        extent = tile_layer.get('extent', 4096)  # Valeur par défaut 4096
                         
-                        annotations.append(annotation)
-                        self.logger.debug(f"Annotation créée avec succès pour {value}")
-                    else:
-                        self.logger.warning(f"Impossible d'extraire une bounding box valide pour {value}")
+                        features = tile_layer.get('features', [])
+                        if not features:
+                            self.logger.warning(f"Pas de fonctionnalités dans la géométrie pour {value}")
+                            continue
+                            
+                        # Prendre la première fonctionnalité
+                        feature = features[0]
+                        geometry_data = feature.get('geometry', {})
+                        
+                        if geometry_data.get('type') == 'Polygon':
+                            # Récupérer les coordonnées du polygone et normaliser
+                            coords = geometry_data.get('coordinates', [[]])[0]
+                            
+                            if not coords:
+                                self.logger.warning(f"Coordonnées vides pour {value}")
+                                continue
+                                
+                            # Normaliser les coordonnées (diviser par l'étendue)
+                            normalized_coords = [(x/extent, 1 - (y/extent)) for x, y in coords]
+
+                            # Calculer la bounding box à partir des coordonnées normalisées
+                            x_coords = [x for x, y in normalized_coords]
+                            y_coords = [y for x, y in normalized_coords]
+
+                            min_x, max_x = min(x_coords), max(x_coords)
+                            min_y, max_y = min(y_coords), max(y_coords)
+
+                            width = max_x - min_x
+                            height = max_y - min_y
+
+                            # Créer la bounding box
+                            bbox = BoundingBox(
+                                x=min_x,
+                                y=min_y,
+                                width=width,
+                                height=height
+                            )
+                            
+                            # Créer des métadonnées enrichies pour faciliter l'affichage
+                            parts = value.split("--")
+                            sign_category = parts[0] if len(parts) > 0 else ""
+                            sign_type = parts[1].replace("-", " ").title() if len(parts) > 1 else ""
+                            
+                            # Créer l'annotation
+                            annotation = Annotation(
+                                class_id=class_id,
+                                bbox=bbox,
+                                confidence=confidence,
+                                type=AnnotationType.BBOX,
+                                metadata={
+                                    "mapillary_id": detection.get("id", ""),
+                                    "value": value,        # Nom original du panneau
+                                    "sign_name": value,    # Duplicate pour assurer la compatibilité
+                                    "sign_category": sign_category,
+                                    "sign_type": sign_type,
+                                    "area": properties.get("area", 0),
+                                    "normalized_polygon": normalized_coords,
+                                    "detection_id": detection.get("id", "unknown")
+                                }
+                            )
+                            
+                            annotations.append(annotation)
+                            self.logger.debug(f"Annotation créée avec succès pour {value}")
+                        else:
+                            self.logger.warning(f"Type de géométrie non pris en charge: {geometry_data.get('type')}")
+                            
+                    except Exception as e:
+                        self.logger.error(f"Erreur lors du décodage de la géométrie: {str(e)}")
+                        import traceback
+                        self.logger.error(traceback.format_exc())
                     
                 except Exception as e:
                     self.logger.error(f"Erreur lors du traitement de la détection: {str(e)}")
                     import traceback
                     self.logger.error(traceback.format_exc())
             
+            # Afficher les statistiques de filtrage si disponibles
+            if filtered_out_types:
+                self.logger.info(f"Types d'objets filtrés: {filtered_out_types}")
+            
             self.logger.info(f"Récupéré {len(annotations)} annotations pour l'image {image_id}")
+            
+            # Ajouter un tri par taille pour les annotations (les plus grandes d'abord)
+            # Cela permet de mieux voir les panneaux importants
+            annotations.sort(key=lambda a: a.bbox.width * a.bbox.height, reverse=True)
+            
             return annotations
             
         except Exception as e:
@@ -858,7 +949,7 @@ class APIService:
             import traceback
             self.logger.error(traceback.format_exc())
             return []
-        
+            
     def download_image(
         self, 
         url: str, 
@@ -1135,7 +1226,7 @@ class APIService:
     def _extract_bbox_from_detection(self, geometry: Any, detection: Dict) -> Optional[BoundingBox]:
         """
         Extrait une bounding box à partir des données de détection Mapillary.
-        Avec priorité sur les données les plus précises.
+        Avec priorité sur les données les plus précises et meilleure gestion des erreurs.
         
         Args:
             geometry: Géométrie de la détection
@@ -1145,45 +1236,80 @@ class APIService:
             BoundingBox normalisée ou None si impossible à extraire
         """
         try:
-            self.logger.debug(f"Extraction bbox pour détection {detection.get('id', 'unknown')}")
+            detection_id = detection.get('id', 'unknown')
+            self.logger.debug(f"Extraction bbox pour détection {detection_id}")
+            
+            # Fonction utilitaire pour normaliser et valider une bbox
+            def normalize_and_validate(x, y, width, height):
+                # S'assurer que toutes les valeurs sont des flottants
+                try:
+                    x = float(x)
+                    y = float(y)
+                    width = float(width)
+                    height = float(height)
+                except (ValueError, TypeError):
+                    return None
+                    
+                # S'assurer que les dimensions sont positives
+                if width <= 0 or height <= 0:
+                    width = max(0.01, width)  # minimum 1% de l'image
+                    height = max(0.01, height)
+                    
+                # S'assurer que tout est dans les limites [0,1]
+                x = max(0, min(x, 1.0))
+                y = max(0, min(y, 1.0))
+                
+                # S'assurer que x+width et y+height ne dépassent pas 1
+                if x + width > 1.0:
+                    width = 1.0 - x
+                if y + height > 1.0:
+                    height = 1.0 - y
+                    
+                return BoundingBox(x=x, y=y, width=width, height=height)
             
             # PRIORITÉ 1: Extraction depuis "area" (le plus fiable)
             area = detection.get("area", {})
             if isinstance(area, dict) and all(key in area for key in ["x", "y", "width", "height"]):
-                x = float(area["x"])
-                y = float(area["y"])
-                width = float(area["width"])
-                height = float(area["height"])
-                
-                # Vérifier les limites
-                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
-                    bbox = BoundingBox(
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height
-                    )
+                bbox = normalize_and_validate(area["x"], area["y"], area["width"], area["height"])
+                if bbox:
                     self.logger.debug(f"BoundingBox extraite de area: {bbox}")
                     return bbox
-            
+                
             # PRIORITÉ 2: Extraction depuis "properties"
             properties = detection.get("properties", {})
-            if isinstance(properties, dict) and all(key in properties for key in ["x", "y", "width", "height"]):
-                x = float(properties["x"])
-                y = float(properties["y"])
-                width = float(properties["width"])
-                height = float(properties["height"])
-                
-                # Vérifier les limites
-                if 0 <= x <= 1 and 0 <= y <= 1 and width > 0 and height > 0 and x + width <= 1 and y + height <= 1:
-                    bbox = BoundingBox(
-                        x=x,
-                        y=y,
-                        width=width,
-                        height=height
+            if isinstance(properties, dict):
+                # Vérifier s'il y a des coordonnées directes
+                if all(key in properties for key in ["x", "y", "width", "height"]):
+                    bbox = normalize_and_validate(
+                        properties["x"], properties["y"], 
+                        properties["width"], properties["height"]
                     )
-                    self.logger.debug(f"BoundingBox extraite de properties: {bbox}")
-                    return bbox
+                    if bbox:
+                        self.logger.debug(f"BoundingBox extraite de properties: {bbox}")
+                        return bbox
+                        
+                # Vérifier s'il y a un champ 'bbox' ou 'bounding_box'
+                bbox_field = properties.get('bbox', properties.get('bounding_box'))
+                if isinstance(bbox_field, (list, tuple)) and len(bbox_field) >= 4:
+                    # Format [x, y, width, height] ou [x1, y1, x2, y2]
+                    if len(bbox_field) == 4:
+                        if bbox_field[2] > bbox_field[0] and bbox_field[3] > bbox_field[1]:
+                            # C'est probablement [x1, y1, x2, y2]
+                            x = bbox_field[0]
+                            y = bbox_field[1]
+                            width = bbox_field[2] - bbox_field[0]
+                            height = bbox_field[3] - bbox_field[1]
+                        else:
+                            # C'est probablement [x, y, width, height]
+                            x = bbox_field[0]
+                            y = bbox_field[1]
+                            width = bbox_field[2]
+                            height = bbox_field[3]
+                            
+                        bbox = normalize_and_validate(x, y, width, height)
+                        if bbox:
+                            self.logger.debug(f"BoundingBox extraite du champ bbox: {bbox}")
+                            return bbox
             
             # PRIORITÉ 3: Extraction depuis "segmentation" ou "segmentations"
             segmentations = detection.get("segmentations", detection.get("segmentation", []))
@@ -1191,88 +1317,95 @@ class APIService:
                 all_x = []
                 all_y = []
                 
+                # Traiter toutes les segmentations
                 for seg in segmentations:
                     if isinstance(seg, list):
                         for point in seg:
                             if isinstance(point, list) and len(point) >= 2:
-                                all_x.append(float(point[0]))
-                                all_y.append(float(point[1]))
+                                try:
+                                    all_x.append(float(point[0]))
+                                    all_y.append(float(point[1]))
+                                except (ValueError, TypeError):
+                                    continue
                 
                 if all_x and all_y:
-                    min_x, max_x = min(all_x), max(all_x)
-                    min_y, max_y = min(all_y), max(all_y)
+                    min_x = min(all_x)
+                    max_x = max(all_x)
+                    min_y = min(all_y)
+                    max_y = max(all_y)
                     
-                    # Calculer la largeur et la hauteur
                     width = max_x - min_x
                     height = max_y - min_y
                     
-                    # Vérifier les dimensions
-                    if width > 0 and height > 0:
-                        # Assurer que les valeurs sont dans les limites [0,1]
-                        min_x = max(0, min(min_x, 1))
-                        min_y = max(0, min(min_y, 1))
-                        width = min(width, 1 - min_x)
-                        height = min(height, 1 - min_y)
-                        
-                        bbox = BoundingBox(
-                            x=min_x,
-                            y=min_y,
-                            width=width,
-                            height=height
-                        )
+                    bbox = normalize_and_validate(min_x, min_y, width, height)
+                    if bbox:
                         self.logger.debug(f"BoundingBox extraite des segmentations: {bbox}")
                         return bbox
             
             # PRIORITÉ 4: Extraction depuis la géométrie si c'est un polygone
-            if isinstance(geometry, dict) and geometry.get("type", "").lower() == "polygon" and "coordinates" in geometry:
+            if isinstance(geometry, dict) and "coordinates" in geometry:
+                geo_type = geometry.get("type", "").lower()
                 coordinates = geometry.get("coordinates", [])
-                if coordinates and isinstance(coordinates, list) and len(coordinates) > 0:
-                    points = coordinates[0]
-                    if points and isinstance(points, list) and len(points) > 0:
-                        # Extraire les points x, y du polygone
-                        x_coords = [p[0] for p in points if len(p) >= 2]
-                        y_coords = [p[1] for p in points if len(p) >= 2]
+                
+                # Traiter les différents types de géométrie
+                if geo_type == "polygon" and coordinates and isinstance(coordinates, list):
+                    # Pour un polygone, les points sont dans le premier élément
+                    points = coordinates[0] if len(coordinates) > 0 and isinstance(coordinates[0], list) else coordinates
+                    
+                    x_coords = []
+                    y_coords = []
+                    
+                    for point in points:
+                        if isinstance(point, list) and len(point) >= 2:
+                            try:
+                                x_coords.append(float(point[0]))
+                                y_coords.append(float(point[1]))
+                            except (ValueError, TypeError):
+                                continue
+                    
+                    if x_coords and y_coords:
+                        min_x = min(x_coords)
+                        max_x = max(x_coords)
+                        min_y = min(y_coords)
+                        max_y = max(y_coords)
                         
-                        if x_coords and y_coords:
-                            # Trouver les min/max
-                            min_x, max_x = min(x_coords), max(x_coords)
-                            min_y, max_y = min(y_coords), max(y_coords)
-                            
-                            # Calculer la largeur et la hauteur
-                            width = max_x - min_x
-                            height = max_y - min_y
-                            
-                            # Vérifier les dimensions
-                            if width > 0 and height > 0:
-                                # Assurer que les valeurs sont dans les limites [0,1]
-                                min_x = max(0, min(min_x, 1))
-                                min_y = max(0, min(min_y, 1))
-                                width = min(width, 1 - min_x)
-                                height = min(height, 1 - min_y)
-                                
-                                bbox = BoundingBox(
-                                    x=min_x,
-                                    y=min_y,
-                                    width=width,
-                                    height=height
-                                )
-                                self.logger.debug(f"BoundingBox extraite du polygone: {bbox}")
-                                return bbox
+                        width = max_x - min_x
+                        height = max_y - min_y
+                        
+                        bbox = normalize_and_validate(min_x, min_y, width, height)
+                        if bbox:
+                            self.logger.debug(f"BoundingBox extraite du polygone: {bbox}")
+                            return bbox
+                
+                # Traiter le cas d'un point (moins précis)
+                elif geo_type == "point" and coordinates and isinstance(coordinates, list) and len(coordinates) >= 2:
+                    # Pour un point, on crée une bbox autour du point
+                    try:
+                        x = float(coordinates[0])
+                        y = float(coordinates[1])
+                        
+                        # Créer une boîte de 5% autour du point
+                        width = 0.05
+                        height = 0.05
+                        
+                        x = x - width/2
+                        y = y - height/2
+                        
+                        bbox = normalize_and_validate(x, y, width, height)
+                        if bbox:
+                            self.logger.debug(f"BoundingBox extraite d'un point: {bbox}")
+                            return bbox
+                    except (ValueError, TypeError, IndexError):
+                        pass
             
-            # SOLUTION DE REPLI: Si toutes les méthodes ont échoué, créer une bounding box artificielle
-            # Mais la rendre plus visible en utilisant 40% de l'image
-            size = 0.4  # 40% de l'image
+            # SOLUTION DE REPLI: création d'une bbox au centre de l'image
+            size = 0.2  # 20% de l'image, plus petit pour être moins intrusif
             bbox_x = (1 - size) / 2
             bbox_y = (1 - size) / 2
             
-            bbox = BoundingBox(
-                x=bbox_x,
-                y=bbox_y,
-                width=size,
-                height=size
-            )
+            bbox = BoundingBox(x=bbox_x, y=bbox_y, width=size, height=size)
             
-            self.logger.warning(f"Création d'une bounding box artificielle: {bbox}")
+            self.logger.warning(f"Création d'une bounding box artificielle pour {detection_id}: {bbox}")
             return bbox
                 
         except Exception as e:
@@ -1280,14 +1413,10 @@ class APIService:
             import traceback
             self.logger.error(traceback.format_exc())
             
-            # Même en cas d'erreur, créer une bbox par défaut
-            size = 0.4  # 40% de l'image
+            # Même en cas d'erreur, créer une bbox par défaut, mais plus petite
+            size = 0.15  # 15% de l'image
             bbox_x = (1 - size) / 2
             bbox_y = (1 - size) / 2
             
-            return BoundingBox(
-                x=bbox_x,
-                y=bbox_y,
-                width=size,
-                height=size
-            )
+            return BoundingBox(x=bbox_x, y=bbox_y, width=size, height=size)
+            
