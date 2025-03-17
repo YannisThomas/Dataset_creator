@@ -47,7 +47,7 @@ client_lourd/
 
 1. Clonez le dépôt
 ```bash
-git clone https://github.com/Yannis/Dataset_creator.git
+git clone https://github.com/YannisThomas/Dataset_creator.git
 cd client_lourd
 ```
 
