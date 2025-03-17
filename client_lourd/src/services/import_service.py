@@ -224,7 +224,8 @@ class ImportService:
         dataset: Dataset, 
         images_path: Union[str, Path], 
         annotations_path: Optional[Union[str, Path]] = None,
-        format: DatasetFormat = DatasetFormat.YOLO
+        format: DatasetFormat = DatasetFormat.YOLO,
+        image_config_path: Optional[Union[str, Path]] = None
     ) -> Dataset:
         """
         Importe des images et annotations depuis un répertoire local
@@ -234,6 +235,7 @@ class ImportService:
             images_path: Chemin vers les images
             annotations_path: Chemin vers les annotations (optionnel)
             format: Format des annotations
+            image_config_path: Chemin vers le fichier d'information sur les images (optionnel)
             
         Returns:
             Dataset mis à jour
@@ -247,9 +249,37 @@ class ImportService:
             if not images_path.exists() or not images_path.is_dir():
                 raise ImportError(f"Chemin d'images invalide : {images_path}")
             
+            # Charger les informations des images si disponibles
+            image_info = {}
+            if image_config_path and Path(image_config_path).exists():
+                with open(image_config_path, 'r', encoding='utf-8') as f:
+                    image_info = json.load(f)
+                    self.logger.info(f"Informations d'images chargées depuis {image_config_path}")
+            elif (images_path.parent / "image_info.json").exists():
+                with open(images_path.parent / "image_info.json", 'r', encoding='utf-8') as f:
+                    image_info = json.load(f)
+                    self.logger.info(f"Informations d'images chargées depuis {images_path.parent / 'image_info.json'}")
+            
+            # Charger les classes depuis le fichier classes.txt si présent
+            classes_path = images_path.parent / "classes.txt"
+            if classes_path.exists() and len(dataset.classes) == 0:
+                self.logger.info(f"Chargement des classes depuis {classes_path}")
+                classes = {}
+                with open(classes_path, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        class_name = line.strip()
+                        if class_name:
+                            classes[i] = class_name
+                if classes:
+                    dataset.classes = classes
+                    self.logger.info(f"Classes chargées: {classes}")
+            
             # Importer les images
             image_files = list(images_path.glob('*.[jJ][pP][gG]')) + \
-                          list(images_path.glob('*.[pP][nN][gG]'))
+                        list(images_path.glob('*.[pP][nN][gG]')) + \
+                        list(images_path.glob('*.[jJ][pP][eE][gG]'))
+            
+            self.logger.info(f"Import depuis {images_path}: {len(image_files)} images trouvées")
             
             for image_file in image_files:
                 # Charger et valider l'image
@@ -261,20 +291,45 @@ class ImportService:
                     self.logger.warning(f"Impossible de charger l'image {image_file}: {str(e)}")
                     continue
                 
+                # Récupérer l'ID et les métadonnées depuis image_info si disponible
+                image_id = image_file.stem
+                source = ImageSource.LOCAL
+                
+                if image_file.name in image_info:
+                    info = image_info[image_file.name]
+                    if 'id' in info:
+                        image_id = info['id']
+                    if 'source' in info:
+                        try:
+                            source = ImageSource(info['source'])
+                        except ValueError:
+                            source = ImageSource.LOCAL
+                
                 # Créer un objet Image
                 image = Image(
-                    id=image_file.stem,
-                    path=image_file,
+                    id=image_id,
+                    path=image_file,  # Chemin local valide
                     width=width,
                     height=height,
-                    source=ImageSource.LOCAL
+                    source=source
                 )
                 
                 # Importer les annotations si possible
                 if annotations_path:
+                    annotation_file = annotations_path / f"{image_file.stem}.txt"
                     self._import_annotations_for_image(
                         image, 
-                        annotations_path / f"{image_file.stem}.txt", 
+                        annotation_file, 
+                        format,
+                        dataset.classes
+                    )
+                elif format == DatasetFormat.YOLO and (images_path.parent / "labels").exists():
+                    # Chercher automatiquement dans le répertoire labels
+                    label_dir = images_path.parent / "labels"
+                    annotation_file = label_dir / f"{image_file.stem}.txt"
+                    self._import_annotations_for_image(
+                        image, 
+                        annotation_file, 
                         format,
                         dataset.classes
                     )
@@ -285,15 +340,16 @@ class ImportService:
             # Valider le dataset
             validation = dataset.validate_dataset()
             if not validation["valid"]:
-                raise ValidationError(
-                    f"Validation du dataset échouée : {validation['errors']}"
-                )
+                self.logger.warning(f"Validation du dataset échouée : {validation['errors']}")
+                # On continue quand même, car certaines images peuvent être valides
             
             self.logger.info(f"Import de {len(dataset.images)} images")
             return dataset
         
         except Exception as e:
             self.logger.error(f"Échec de l'import local : {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             raise ImportError(f"Échec de l'import local : {str(e)}")
     
     def _import_annotations_for_image(

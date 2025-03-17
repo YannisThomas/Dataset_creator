@@ -281,18 +281,83 @@ class ExportService:
             if create_data_yaml:
                 self._create_yolo_data_yaml(dataset, output_path)
             
+            # Enregistrer la configuration des images pour faciliter le rechargement
+            image_config = {}
+            
             # Exporter chaque image et ses annotations
             for image in dataset.images:
+                # Préparer le nom de fichier de destination
+                # Récupérer le nom de fichier valide
+                if hasattr(image.path, 'name'):
+                    image_filename = image.path.name
+                else:
+                    # Gérer le cas où path est une URL ou une chaîne
+                    from urllib.parse import urlparse
+                    import os
+                    parsed_path = urlparse(str(image.path))
+                    image_filename = os.path.basename(parsed_path.path)
+                    if not image_filename:
+                        # Générer un nom unique si impossible d'extraire
+                        image_filename = f"{image.id}.jpg"
+                
+                dest_image_path = images_dir / image_filename
+                
                 # Copier l'image si demandé
                 if include_images:
-                    dest_image_path = images_dir / image.path.name
                     try:
-                        shutil.copy(image.path, dest_image_path)
+                        # Vérifier si le chemin source est une URL
+                        if isinstance(image.path, str) and image.path.startswith(('http://', 'https://')):
+                            # C'est une URL, chercher si le fichier a été téléchargé localement
+                            from urllib.parse import urlparse
+                            import os
+                            parsed_url = urlparse(image.path)
+                            filename = os.path.basename(parsed_url.path)
+                            
+                            # Si le nom de fichier est vide, utiliser l'ID de l'image
+                            if not filename:
+                                filename = f"{image.id}.jpg"
+                            
+                            # Essayer de trouver le fichier téléchargé localement
+                            found = False
+                            potential_paths = [
+                                Path(f"downloads/{filename}"),
+                                Path(f"downloads/{image.id}.jpg"),
+                                Path(f"data/downloads/{filename}"),
+                                Path(dataset.path) / "images" / filename,
+                                Path(dataset.path) / "images" / f"{image.id}.jpg"
+                            ]
+                            
+                            for potential_path in potential_paths:
+                                if potential_path.exists():
+                                    shutil.copy(potential_path, dest_image_path)
+                                    self.logger.info(f"Image copiée depuis {potential_path} vers {dest_image_path}")
+                                    found = True
+                                    break
+                            
+                            if not found:
+                                self.logger.warning(f"Impossible de trouver l'image localement pour {image.path}")
+                        else:
+                            # C'est un chemin local
+                            path_obj = Path(image.path) if isinstance(image.path, str) else image.path
+                            if path_obj.exists():
+                                shutil.copy(path_obj, dest_image_path)
+                                self.logger.info(f"Image copiée depuis {path_obj} vers {dest_image_path}")
+                            else:
+                                self.logger.warning(f"Fichier source introuvable: {path_obj}")
+                        
+                        # Enregistrer les informations importantes de l'image
+                        image_config[image_filename] = {
+                            'id': image.id,
+                            'width': image.width,
+                            'height': image.height,
+                            'source': image.source.value,
+                            'original_path': str(image.path)  # Sauvegarder le chemin original pour référence
+                        }
                     except Exception as e:
                         self.logger.warning(f"Impossible de copier l'image {image.path}: {str(e)}")
                 
                 # Créer le fichier d'annotations
-                label_path = labels_dir / f"{image.path.stem}.txt"
+                label_path = labels_dir / f"{image_filename.split('.')[0]}.txt"
                 with open(label_path, 'w', encoding='utf-8') as f:
                     for ann in image.annotations:
                         # Format YOLO : class_id x_center y_center width height
@@ -304,10 +369,30 @@ class ExportService:
                             f"{ann.bbox.height:.6f}\n"
                         )
             
+            # Enregistrer les informations des images dans un fichier JSON
+            with open(output_path / "image_info.json", 'w', encoding='utf-8') as f:
+                json.dump(image_config, f, indent=2)
+            
+            # Créer un fichier de configuration supplémentaire pour l'import
+            config_data = {
+                'name': dataset.name,
+                'version': dataset.version,
+                'images_dir': 'images',
+                'labels_dir': 'labels',
+                'classes': dataset.classes,
+                'format': 'YOLO'
+            }
+            
+            with open(output_path / "dataset_config.json", 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2)
+            
             self.logger.info(f"Export YOLO terminé : {output_path}")
             return output_path
             
         except Exception as e:
+            self.logger.error(f"Échec de l'export YOLO : {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             raise ExportError(f"Échec de l'export YOLO : {str(e)}")
     
     def _create_yolo_data_yaml(self, dataset: Dataset, output_path: Path):

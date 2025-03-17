@@ -1,5 +1,6 @@
 # src/controllers/import_controller.py
 
+import json
 from typing import Dict, List, Optional, Union
 from pathlib import Path
 
@@ -551,3 +552,93 @@ class ImportController:
         except Exception as e:
             self.logger.error(f"Échec de l'import de l'image {image_path}: {str(e)}")
             return False
+        
+    def import_yolo_dataset(
+        self, 
+        export_path: Union[str, Path], 
+        new_dataset_name: Optional[str] = None
+    ) -> Dataset:
+        """
+        Importe un dataset précédemment exporté au format YOLO
+        
+        Args:
+            export_path: Chemin vers le répertoire d'export YOLO
+            new_dataset_name: Nom à donner au dataset (optionnel)
+            
+        Returns:
+            Dataset importé
+        """
+        try:
+            export_path = Path(export_path)
+            self.logger.info(f"Import du dataset YOLO depuis: {export_path}")
+            
+            # Vérifier que le répertoire existe
+            if not export_path.exists() or not export_path.is_dir():
+                raise ImportError(f"Répertoire d'export non trouvé : {export_path}")
+            
+            # Vérifier la présence des éléments essentiels
+            images_dir = export_path / "images"
+            labels_dir = export_path / "labels" 
+            classes_file = export_path / "classes.txt"
+            config_file = export_path / "dataset_config.json"
+            
+            if not images_dir.exists() or not labels_dir.exists():
+                self.logger.error(f"Structure de répertoire YOLO invalide: images={images_dir.exists()}, labels={labels_dir.exists()}")
+                raise ImportError(f"Structure de répertoire YOLO invalide : images ou labels manquants")
+            
+            # Charger la configuration si disponible
+            dataset_config = {}
+            if config_file.exists():
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    dataset_config = json.load(f)
+                    self.logger.info(f"Configuration chargée depuis {config_file}")
+            
+            # Charger les classes
+            classes = {}
+            if classes_file.exists():
+                with open(classes_file, 'r', encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        class_name = line.strip()
+                        if class_name:
+                            classes[i] = class_name
+                self.logger.info(f"Classes chargées depuis {classes_file}: {classes}")
+            elif 'classes' in dataset_config:
+                # Convertir les clés de chaîne en entiers si nécessaire
+                classes = {}
+                for key, value in dataset_config['classes'].items():
+                    # Convertir key en entier s'il est stocké comme chaîne
+                    try:
+                        key_int = int(key)
+                        classes[key_int] = value
+                    except (ValueError, TypeError):
+                        classes[key] = value
+                self.logger.info(f"Classes chargées depuis la configuration: {classes}")
+            
+            if not classes:
+                raise ImportError("Aucune information de classe trouvée")
+            
+            # Créer un nouveau dataset
+            dataset_name = new_dataset_name or dataset_config.get('name', export_path.name)
+            self.logger.info(f"Création du dataset {dataset_name} avec {len(classes)} classes")
+            
+            dataset = self.dataset_service.create_dataset(
+                name=dataset_name,
+                classes=classes,
+                version=dataset_config.get('version', '1.0.0')
+            )
+            
+            # Importer les images et annotations
+            self.logger.info(f"Import des images depuis {images_dir} et annotations depuis {labels_dir}")
+            return self.import_service.import_from_local(
+                dataset=dataset,
+                images_path=images_dir,
+                annotations_path=labels_dir,
+                format=DatasetFormat.YOLO,
+                image_config_path=export_path / "image_info.json"
+            )
+        
+        except Exception as e:
+            self.logger.error(f"Échec de l'import du dataset YOLO : {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            raise ImportError(f"Import du dataset YOLO impossible : {str(e)}")
