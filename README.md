@@ -106,19 +106,6 @@ python src/main.py
 - Pillow (Traitement d'images)
 - Pandas (Analyse de données)
 
-## 🤝 Contributions
-
-Les contributions sont les bienvenues ! Veuillez consulter les directives de contribution.
-
-## 📄 Licence
-
-[Spécifiez votre licence]
-
-## 📧 Contact
-
-Votre nom ou informations de contact
-
----
 
 **Note**: Ce projet est en développement actif. Les fonctionnalités et l'API peuvent changer.
 ```
