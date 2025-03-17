@@ -678,6 +678,35 @@ class ImageViewer(QWidget):
             
             self.logger.debug(f"Chargement de l'image: {path_str}, type: {type(image.path)}")
             
+            # Correction pour les chemins problématiques
+            if path_str.startswith(('http://', 'https://')):
+                # Extraire la partie locale du chemin (après http:// ou https://)
+                local_part = path_str.split('://')[-1]
+                
+                # Vérifier si le chemin local existe
+                if Path(local_part).exists():
+                    path_str = local_part
+                    self.logger.debug(f"Chemin corrigé pour l'image URL: {path_str}")
+                else:
+                    # Essayer d'autres variations de chemins
+                    filename = Path(local_part).name
+                    potential_paths = [
+                        Path("data/datasets") / Path(local_part),
+                        Path(local_part.replace('\\', '/')),
+                        Path("data/downloads") / filename,
+                        Path("downloads") / filename
+                    ]
+                    
+                    for potential_path in potential_paths:
+                        if potential_path.exists():
+                            path_str = str(potential_path)
+                            self.logger.debug(f"Chemin alternatif trouvé: {path_str}")
+                            break
+                    else:
+                        self.logger.error(f"Fichier image introuvable: {path_str}")
+                        self.image_loaded.emit(False)
+                        return False
+            
             # Vérifier si le fichier existe
             if not Path(path_str).exists():
                 self.logger.error(f"Fichier image introuvable: {path_str}")

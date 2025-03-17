@@ -293,34 +293,69 @@ class DatasetView(BaseView):
                 self.logger.debug(f"Ajout de l'image {i}: {image.path}")
                 item = QListWidgetItem()
                 
-                # Extraire le nom du fichier du chemin
+                # Gérer correctement le chemin et le nom de fichier
                 if isinstance(image.path, Path):
-                    # Conversion en str pour le texte à afficher
                     file_name = image.path.name
-                    # Conversion en str pour QPixmap
                     path_str = str(image.path)
                 else:
-                    # Si c'est déjà une chaîne de caractères
-                    path_obj = Path(image.path)
-                    file_name = path_obj.name
-                    path_str = image.path
+                    # Si c'est une chaîne, la traiter correctement
+                    path_str = str(image.path)
+                    
+                    # Corriger les chemins problématiques
+                    if path_str.startswith(('http://', 'https://')):
+                        # Extraire la partie locale du chemin
+                        local_part = path_str.split('://')[-1]
+                        
+                        # Vérifier si le chemin local existe
+                        local_path = Path(local_part)
+                        if local_path.exists():
+                            path_str = str(local_path)
+                            file_name = local_path.name
+                        else:
+                            # Essayer d'autres chemins possibles
+                            filename = local_path.name
+                            
+                            potential_paths = [
+                                Path("data/datasets") / self.dataset.name / "images" / filename,
+                                Path(self.dataset.path) / "images" / filename,
+                                Path("data/downloads") / filename,
+                                Path("downloads") / filename
+                            ]
+                            
+                            for potential_path in potential_paths:
+                                if potential_path.exists():
+                                    path_str = str(potential_path)
+                                    file_name = filename
+                                    break
+                            else:
+                                # Si aucun chemin local n'est trouvé, utiliser le nom de fichier seul
+                                file_name = filename
+                    else:
+                        # Chemin normal, extraire le nom
+                        try:
+                            file_name = Path(path_str).name
+                        except:
+                            file_name = path_str.split("/")[-1]
                 
                 item.setText(file_name)
                 item.setData(Qt.ItemDataRole.UserRole, image)
                 
-                # Essayer de charger la miniature avec une chaîne str
+                # Essayer de charger la miniature
                 try:
-                    # Utiliser explicitement str pour le chemin
-                    pixmap = QPixmap(path_str)
-                    if not pixmap.isNull():
-                        scaled_pixmap = pixmap.scaled(
-                            64, 64,
-                            Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation
-                        )
-                        item.setIcon(QIcon(scaled_pixmap))
+                    # Vérifier si le fichier existe localement
+                    if Path(path_str).exists():
+                        pixmap = QPixmap(path_str)
+                        if not pixmap.isNull():
+                            scaled_pixmap = pixmap.scaled(
+                                64, 64,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation
+                            )
+                            item.setIcon(QIcon(scaled_pixmap))
+                        else:
+                            self.logger.warning(f"Échec du chargement du pixmap pour {path_str}")
                     else:
-                        self.logger.warning(f"Échec du chargement du pixmap pour {path_str}")
+                        self.logger.warning(f"Fichier non trouvé pour la miniature: {path_str}")
                 except Exception as e:
                     self.logger.warning(f"Échec de la création de miniature pour {path_str}: {e}")
                 
@@ -343,7 +378,7 @@ class DatasetView(BaseView):
             self.classes_label.setText(f"Classes: {len(self.dataset.classes)}")
         
         self.logger.debug("Mise à jour de l'UI terminée")
-        
+
     def _on_image_selected(self):
         """Gère la sélection d'une image dans la liste."""
         items = self.image_list.selectedItems()
@@ -359,6 +394,36 @@ class DatasetView(BaseView):
                 
                 # Debug logging pour faciliter la résolution de problèmes
                 self.logger.debug(f"Image sélectionnée: {image.id}, path type: {type(image.path)}, path: {image.path}")
+                
+                # S'assurer que le chemin est correct avant de charger l'image
+                path_str = str(image.path)
+                
+                # Correction des chemins problématiques
+                if path_str.startswith(('http://', 'https://')):
+                    # Extraire la partie locale du chemin
+                    local_part = path_str.split('://')[-1]
+                    local_path = Path(local_part)
+                    
+                    # Vérifier si le chemin local existe
+                    if local_path.exists():
+                        image.path = local_path
+                        self.logger.debug(f"Chemin corrigé: {path_str} -> {local_path}")
+                    else:
+                        # Essayer d'autres chemins possibles
+                        filename = local_path.name
+                        
+                        potential_paths = [
+                            Path("data/datasets") / self.dataset.name / "images" / filename,
+                            Path(self.dataset.path) / "images" / filename,
+                            Path("data/downloads") / filename,
+                            Path("downloads") / filename
+                        ]
+                        
+                        for potential_path in potential_paths:
+                            if potential_path.exists():
+                                image.path = potential_path
+                                self.logger.debug(f"Chemin alternatif trouvé: {path_str} -> {potential_path}")
+                                break
                 
                 # Charger l'image dans le viewer
                 try:
@@ -415,9 +480,23 @@ class DatasetView(BaseView):
             self.image_info_label.setText("")
             return
             
+        # Obtenir le nom de fichier de manière sécurisée
+        try:
+            if isinstance(self.current_image.path, Path):
+                filename = self.current_image.path.name
+            else:
+                path_str = str(self.current_image.path)
+                if path_str.startswith(('http://', 'https://')):
+                    # Extraire le nom de fichier de l'URL
+                    filename = Path(path_str.split('://')[-1]).name
+                else:
+                    filename = Path(path_str).name
+        except:
+            filename = str(self.current_image.path)
+        
         # Formater les métadonnées en HTML pour une meilleure présentation
         metadata_html = f"""
-        <b>Fichier:</b> {self.current_image.path.name}<br>
+        <b>Fichier:</b> {filename}<br>
         <b>Dimensions:</b> {self.current_image.width} × {self.current_image.height}<br>
         <b>Source:</b> {self.current_image.source.value}<br>
         <b>Créé le:</b> {self.current_image.created_at.strftime('%Y-%m-%d %H:%M:%S')}

@@ -426,16 +426,45 @@ class DatabaseManager:
                 # Traiter le chemin de l'image
                 image_path = image_dict['path']
                 
-                # Ajouter un préfixe https:// aux URLs qui n'en ont pas pour les sources distantes
+                # Pour les sources distantes, vérifier si le fichier existe localement
                 if (image_dict['source'] == ImageSource.MAPILLARY.value or 
                     image_dict['source'] == ImageSource.REMOTE.value):
-                    if image_path and not image_path.startswith(('http://', 'https://')):
+                    
+                    # Si le chemin contient http:// ou https://, extraire la partie locale
+                    if image_path.startswith(('http://', 'https://')):
+                        local_part = image_path.split('://')[-1]
+                        local_path = Path(local_part)
+                        
+                        # Vérifier si le chemin local existe
+                        if local_path.exists():
+                            image_path = str(local_path)
+                            self.logger.debug(f"Utilisation du chemin local pour {image_dict['id']}: {local_path}")
+                        else:
+                            # Essayer d'autres chemins possibles
+                            filename = Path(local_part).name
+                            dataset_images_dir = Path(dataset_dict['path']) / "images"
+                            
+                            potential_paths = [
+                                dataset_images_dir / filename,
+                                Path("data/datasets") / name / "images" / filename,
+                                Path("data/downloads") / filename,
+                                Path("downloads") / filename
+                            ]
+                            
+                            for path in potential_paths:
+                                if path.exists():
+                                    image_path = str(path)
+                                    self.logger.debug(f"Chemin alternatif trouvé pour {image_dict['id']}: {path}")
+                                    break
+                    
+                    # Si le chemin n'a pas de préfixe http(s) et n'a pas été trouvé localement, ajouter https://
+                    elif not image_path.startswith(('http://', 'https://')):
                         image_path = f"https://{image_path}"
                 
                 # Créer l'objet Image
                 image = Image(
                     id=image_dict['id'],
-                    path=image_path,  # Chemin corrigé avec préfixe si nécessaire
+                    path=image_path,
                     width=image_dict['width'],
                     height=image_dict['height'],
                     source=ImageSource(image_dict['source']),
