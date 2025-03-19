@@ -217,12 +217,12 @@ class ImportService:
             if not hasattr(image, 'path') or not image.path:
                 self.logger.warning(f"Chemin d'image invalide pour {image.id}")
                 return False
-                
+                    
             # S'assurer que l'URL a un préfixe https:// si nécessaire
             image_path = str(image.path)
             if image_path and not image_path.startswith(('http://', 'https://')):
                 image_path = f"https://{image_path}"
-                
+                    
             self.logger.debug(f"Téléchargement de l'image depuis: {image_path}")
             image_data = self.api_service.download_image(image_path)
             

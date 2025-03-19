@@ -666,7 +666,7 @@ class MapillaryImportDialog(BaseDialog):
                 
                 # Utiliser les classes de panneaux depuis la configuration
                 classes = {}
-                for class_id, sign_id in self.mapillary_config.get("class_mapping", {}).items():
+                for sign_id, class_id in self.mapillary_config.get("class_mapping", {}).items():
                     # Extraire le nom lisible du panneau (ex: "regulatory--stop--g1" -> "Stop")
                     sign_parts = sign_id.split("--")
                     if len(sign_parts) > 1:
@@ -675,14 +675,20 @@ class MapillaryImportDialog(BaseDialog):
                     else:
                         classes[int(class_id)] = sign_id
                 
+                # Ajouter une classe "Unknown Traffic Sign" avec ID 9999 (ou un autre ID non utilisé)
+                classes[9999] = "Unknown Traffic Sign"
+                
                 try:
                     # Importer directement depuis Mapillary avec création du dataset
                     self.progress_bar.setValue(10)
+                    
+                    # Ajouter un paramètre pour forcer le nombre exact d'images
                     dataset = self.import_controller.import_from_mapillary(
                         bbox=bbox,
                         dataset_name=dataset_name,
                         max_images=max_images,
-                        classes=classes
+                        classes=classes,
+                        enforce_max_images=True  # Nouveau paramètre
                     )
                     
                     self.import_results = {
@@ -715,6 +721,29 @@ class MapillaryImportDialog(BaseDialog):
                     
                     # Mettre à jour la progression
                     self.progress_bar.setValue(10)
+                    
+                    # Si le nombre d'images sélectionnées est inférieur au maximum, essayer d'en importer plus
+                    if len(selected_images) < max_images and self.confirm_action(
+                        "Images supplémentaires",
+                        f"Seulement {len(selected_images)} images disponibles. Souhaitez-vous étendre la zone de recherche pour atteindre {max_images} images?"
+                    ):
+                        # Élargir la zone et chercher plus d'images
+                        extended_bbox = self._expand_bbox(bbox, 0.2)  # Élargir de 20%
+                        
+                        additional_images = self.import_controller.preview_mapillary_import(
+                            bbox=extended_bbox,
+                            max_images=max_images - len(selected_images)
+                        )
+                        
+                        # Filtrer pour éviter les doublons
+                        existing_ids = {img.id for img in selected_images}
+                        unique_additional = [img for img in additional_images if img.id not in existing_ids]
+                        
+                        selected_images.extend(unique_additional)
+                        self.logger.info(f"Ajout de {len(unique_additional)} images supplémentaires")
+                    
+                    # Limiter au nombre maximum demandé
+                    selected_images = selected_images[:max_images]
                     
                     # Importer les images dans le dataset existant
                     dataset = self.api_controller.import_images_to_dataset(
@@ -755,7 +784,28 @@ class MapillaryImportDialog(BaseDialog):
                 "Erreur d'importation",
                 f"Impossible d'importer les images: {str(e)}"
             )
-    
+
+    def _expand_bbox(self, bbox, factor=0.2):
+        """
+        Élargit une bounding box par un facteur donné.
+        
+        Args:
+            bbox: Bounding box à élargir
+            factor: Facteur d'élargissement (0.1 = 10%)
+            
+        Returns:
+            Bounding box élargie
+        """
+        width = bbox['max_lon'] - bbox['min_lon']
+        height = bbox['max_lat'] - bbox['min_lat']
+        
+        return {
+            'min_lat': bbox['min_lat'] - height * factor,
+            'max_lat': bbox['max_lat'] + height * factor,
+            'min_lon': bbox['min_lon'] - width * factor,
+            'max_lon': bbox['max_lon'] + width * factor
+        }
+        
     def _get_dataset_name_from_selection(self) -> str:
         """
         Génère un nom de dataset basé sur la sélection actuelle.
