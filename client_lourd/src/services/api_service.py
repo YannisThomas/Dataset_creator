@@ -599,54 +599,31 @@ class APIService:
             self.logger.error(f"Erreur lors de la vérification du token : {str(e)}")
             return False
     
-    def get_images_in_bbox(
-        self, 
-        bbox: Dict[str, float], 
-        limit: int = 100,
-        use_cache: bool = True,
-        force_refresh: bool = False,
-        object_types: Optional[List[str]] = None  # Nouveau paramètre pour filtrer les types d'objets
-    ) -> List[Image]:
+    def get_images_in_bbox(self, bbox: Dict[str, float], limit: int = 100, use_cache: bool = True, force_refresh: bool = False, object_types: Optional[List[str]] = None) -> List[Image]:
         """
-        Récupère les images dans une bounding box donnée.
-        
-        Args:
-            bbox: Bounding box géographique
-            limit: Nombre maximum d'images
-            use_cache: Utiliser le cache si disponible
-            force_refresh: Forcer le rafraîchissement du cache
-            object_types: Types d'objets à filtrer (ex: ["regulatory", "warning"])
-            
-        Returns:
-            Liste d'objets Image
+        Récupère les images dans une bounding box donnée avec une meilleure gestion des erreurs.
         """
-        # Log détaillé des paramètres d'entrée
-        self.logger.debug(f"Paramètres bbox: {bbox}")
-        self.logger.debug(f"Limite: {limit}")
-        
-        # Génération de la chaîne bbox
-        bbox_str = f"{bbox['min_lon']},{bbox['min_lat']},{bbox['max_lon']},{bbox['max_lat']}"
-        self.logger.debug(f"Chaîne bbox générée: {bbox_str}")
-        
-        # Paramètres de la requête
-        params = {
-            "bbox": bbox_str,
-            "fields": "id,geometry,captured_at,thumb_1024_url",
-            "limit": limit
-        }
-        
-        # Ajouter le filtre par type d'objets si spécifié
-        if object_types:
-            # Convertir la liste en chaîne séparée par des virgules
-            filter_values = ",".join(object_types)
-            params["has_object_detections"] = filter_values
-            self.logger.debug(f"Filtrage par types d'objets: {filter_values}")
-        
         try:
-            # Log avant la requête
-            self.logger.debug("Tentative de requête à l'API Mapillary")
-            self.logger.debug(f"URL endpoint: images")
-            self.logger.debug(f"Paramètres: {params}")
+            # Log détaillé des paramètres d'entrée
+            self.logger.debug(f"Paramètres bbox: {bbox}")
+            self.logger.debug(f"Limite: {limit}")
+            
+            # Génération de la chaîne bbox
+            bbox_str = f"{bbox['min_lon']},{bbox['min_lat']},{bbox['max_lon']},{bbox['max_lat']}"
+            self.logger.debug(f"Chaîne bbox générée: {bbox_str}")
+            
+            # Paramètres de la requête
+            params = {
+                "bbox": bbox_str,
+                "fields": "id,geometry,captured_at,thumb_1024_url",
+                "limit": limit
+            }
+            
+            # Ajouter le filtre par type d'objets si spécifié
+            if object_types:
+                filter_values = ",".join(object_types)
+                params["has_object_detections"] = filter_values
+                self.logger.debug(f"Filtrage par types d'objets: {filter_values}")
             
             # Effectuer la requête
             response = self._make_request(
@@ -656,39 +633,53 @@ class APIService:
                 force_refresh=force_refresh
             )
             
-            # Log de la réponse
-            self.logger.debug(f"Réponse reçue. Clés: {response.keys() if isinstance(response, dict) else 'Non dict'}")
-            
-            if not response or "data" not in response:
-                self.logger.warning("Aucune donnée reçue de l'API Mapillary")
+            # Validation plus stricte de la réponse
+            if not isinstance(response, dict):
+                self.logger.warning(f"Réponse API invalide: attendu dict, reçu {type(response)}")
+                return []
+                
+            if "data" not in response:
+                self.logger.warning("Clé 'data' manquante dans la réponse API")
+                return []
+                
+            data = response["data"]
+            if not isinstance(data, list):
+                self.logger.warning(f"Format de données invalide: attendu list, reçu {type(data)}")
                 return []
             
             # Log du nombre de données reçues
-            self.logger.debug(f"Nombre d'images reçues : {len(response['data'])}")
+            self.logger.debug(f"Nombre d'images reçues : {len(data)}")
             
             images = []
-            for img_data in response["data"]:
+            for img_data in data:
                 try:
-                    # Traitement et construction de l'objet Image (comme avant)
-                    # ...
-                    geometry = img_data.get('geometry', {})
+                    if not isinstance(img_data, dict):
+                        self.logger.warning(f"Format d'image invalide: {type(img_data)}")
+                        continue
+                        
+                    # Vérifier les champs obligatoires
+                    if "id" not in img_data:
+                        self.logger.warning("Image sans ID ignorée")
+                        continue
                     
-                    if not geometry:
-                        self.logger.warning(f"Image {img_data.get('id', 'unknown')} ignorée : géométrie manquante")
+                    # Vérification de la géométrie
+                    geometry = img_data.get('geometry', {})
+                    if not geometry or not isinstance(geometry, dict):
+                        self.logger.warning(f"Image {img_data.get('id', 'unknown')} ignorée : géométrie manquante ou invalide")
                         continue
                     
                     coordinates = geometry.get('coordinates', [])
-                    
                     if not coordinates or len(coordinates) < 2:
                         self.logger.warning(f"Image {img_data.get('id', 'unknown')} ignorée : coordonnées invalides")
                         continue
                     
                     lon, lat = coordinates
                     
+                    # Créer l'objet Image avec des valeurs par défaut sécurisées
                     image = Image(
                         id=img_data["id"],
                         path=img_data.get("thumb_1024_url", ""),
-                        width=1024,
+                        width=1024,  # Valeur par défaut pour thumbnail
                         height=1024,
                         source=ImageSource.MAPILLARY,
                         metadata={
@@ -704,8 +695,6 @@ class APIService:
                     
                 except Exception as e:
                     self.logger.error(f"Erreur de traitement de l'image {img_data.get('id', 'unknown')}: {str(e)}")
-                    import traceback
-                    self.logger.error(traceback.format_exc())
             
             self.logger.info(f"Récupéré {len(images)} images de Mapillary")
             return images
@@ -714,7 +703,7 @@ class APIService:
             self.logger.error(f"Échec de récupération des images : {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
-            raise APIError(f"Échec de récupération des images Mapillary : {str(e)}")
+            return []  # Retourner une liste vide en cas d'erreur plutôt que lever une exception
     
     def get_image_detections(
         self, 

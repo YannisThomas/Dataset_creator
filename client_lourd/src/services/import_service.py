@@ -39,16 +39,7 @@ class ImportService:
         include_images_without_annotations: bool = False
     ) -> Dataset:
         """
-        Importe des images depuis Mapillary avec traitement amélioré des annotations.
-        
-        Args:
-            dataset: Dataset de destination
-            bbox: Bounding box géographique
-            max_images: Nombre maximum d'images à importer
-            include_images_without_annotations: Si True, inclut les images sans annotations
-                
-        Returns:
-            Dataset mis à jour
+        Importe des images depuis Mapillary avec un meilleur traitement des erreurs.
         """
         try:
             # Vérifier que le dataset n'est pas None
@@ -56,13 +47,18 @@ class ImportService:
                 self.logger.error("Le dataset fourni est None")
                 raise ImportError("Dataset invalide pour l'import")
                 
-            # Récupérer les images de la zone - MODIFIÉ: filtrer uniquement les images contenant des panneaux
+            # Vérifier les paramètres bbox
+            required_keys = ['min_lat', 'max_lat', 'min_lon', 'max_lon']
+            if not all(key in bbox for key in required_keys):
+                self.logger.error(f"Bounding box incomplète: {bbox}")
+                raise ImportError("Bounding box incomplète, requiert min_lat, max_lat, min_lon, max_lon")
+                
+            # Récupérer les images de la zone
             self.logger.info(f"Récupération d'images depuis Mapillary dans la zone: {bbox}")
             images = self.api_service.get_images_in_bbox(
                 bbox, 
                 limit=max_images, 
                 force_refresh=True,
-                # Filtrer uniquement les images contenant des panneaux
                 object_types=["regulatory", "warning", "information", "complementary"]
             )
             
@@ -72,21 +68,21 @@ class ImportService:
             
             self.logger.info(f"Récupération de {len(images)} images depuis Mapillary")
             
-            # Télécharger les annotations et les images avec barre de progression
+            # Statistiques pour le suivi
             total_annotations = 0
             images_with_annotations = 0
+            invalid_coords_count = 0
+            total_downloads = 0
+            download_failures = 0
             
             # Créer les répertoires nécessaires
             images_dir = dataset.path / "images"
             images_dir.mkdir(parents=True, exist_ok=True)
             
-            # Statistiques pour les erreurs de coordonnées
-            invalid_coords_count = 0
-            
             for i, image in enumerate(images):
                 self.logger.debug(f"Traitement de l'image {i+1}/{len(images)}: {image.id}")
                 
-                # Récupérer les détections pour chaque image - forcer le rafraîchissement
+                # Récupérer les détections - avec une meilleure gestion des erreurs
                 has_valid_annotations = False
                 
                 try:
@@ -99,23 +95,13 @@ class ImportService:
                         # S'assurer que les annotations sont valides avant de les ajouter
                         valid_annotations = []
                         for annotation in annotations:
-                            # Vérifier que les coordonnées sont dans les limites (0-1)
-                            if (0 <= annotation.bbox.x <= 1 and 
-                                0 <= annotation.bbox.y <= 1 and
-                                0 < annotation.bbox.width <= 1 and 
-                                0 < annotation.bbox.height <= 1 and
-                                annotation.bbox.x + annotation.bbox.width <= 1 and
-                                annotation.bbox.y + annotation.bbox.height <= 1):
+                            # Vérification complète des annotations
+                            if self._is_valid_annotation(annotation, image.id):
                                 valid_annotations.append(annotation)
                             else:
                                 invalid_coords_count += 1
-                                self.logger.warning(
-                                    f"Annotation ignorée pour l'image {image.id} - coordonnées hors limites: "
-                                    f"x={annotation.bbox.x}, y={annotation.bbox.y}, "
-                                    f"width={annotation.bbox.width}, height={annotation.bbox.height}"
-                                )
                         
-                        # Si aucune annotation valide, investiguer pourquoi
+                        # Si aucune annotation valide, logger le problème
                         if not valid_annotations and annotations:
                             self.logger.warning(f"Image {image.id}: {len(annotations)} annotations récupérées mais aucune valide")
                         
@@ -133,79 +119,34 @@ class ImportService:
                     
                 except Exception as e:
                     self.logger.warning(f"Impossible de récupérer les annotations pour {image.id}: {str(e)}")
-                    import traceback
-                    self.logger.warning(traceback.format_exc())
                 
-                # Si l'image n'a pas d'annotations valides et qu'on ne veut pas inclure ces images, passer
+                # Si l'image n'a pas d'annotations valides et qu'on ne veut pas l'inclure, passer
                 if not has_valid_annotations and not include_images_without_annotations:
                     self.logger.info(f"Image {image.id} ignorée: pas d'annotations valides")
                     continue
                 
-                # Télécharger l'image
-                try:
-                    # Vérifier que le chemin d'image est valide
-                    if not hasattr(image, 'path') or not image.path:
-                        self.logger.warning(f"Chemin d'image invalide pour {image.id}")
-                        continue
-                        
-                    # S'assurer que l'URL a un préfixe https:// si nécessaire
-                    image_path = str(image.path)
-                    if image_path and not image_path.startswith(('http://', 'https://')):
-                        image_path = f"https://{image_path}"
-                        
-                    self.logger.debug(f"Téléchargement de l'image depuis: {image_path}")
-                    image_data = self.api_service.download_image(image_path)
-                    
-                    if image_data:
-                        # Sauvegarder l'image localement avec gestion des fichiers existants
-                        file_path = images_dir / f"{image.id}.jpg"
-                        
-                        # Ne pas réécrire le fichier s'il existe déjà et a la bonne taille
-                        if file_path.exists() and file_path.stat().st_size > 0:
-                            self.logger.debug(f"Image déjà téléchargée: {file_path}")
-                        else:
-                            with open(file_path, 'wb') as f:
-                                f.write(image_data)
-                            self.logger.debug(f"Image sauvegardée localement: {file_path}")
-                        
-                        # Mettre à jour le chemin de l'image vers le chemin local
-                        image.path = file_path
-                        
-                        # Vérifier les dimensions réelles de l'image
-                        try:
-                            from PIL import Image as PILImage
-                            with PILImage.open(file_path) as img:
-                                image.width, image.height = img.size
-                                self.logger.debug(f"Dimensions réelles de l'image: {image.width}x{image.height}")
-                        except Exception as e:
-                            self.logger.warning(f"Impossible de déterminer les dimensions de l'image: {str(e)}")
-                    else:
-                        self.logger.warning(f"Échec du téléchargement de l'image {image.id}")
-                        continue  # Ne pas ajouter l'image au dataset si le téléchargement a échoué
-                except Exception as e:
-                    self.logger.warning(f"Impossible de télécharger l'image {image.id}: {str(e)}")
-                    import traceback
-                    self.logger.warning(traceback.format_exc())
-                    continue  # Ne pas ajouter l'image au dataset si une erreur s'est produite
+                # Télécharger l'image avec une meilleure gestion des erreurs
+                download_success = self._download_and_process_image(image, images_dir)
                 
-                # Ajouter l'image au dataset
+                if download_success:
+                    total_downloads += 1
+                else:
+                    download_failures += 1
+                    if not has_valid_annotations:
+                        # Si l'image n'a pas d'annotations et n'a pas pu être téléchargée, l'ignorer
+                        continue
+                
+                # Ajouter l'image au dataset (que le téléchargement ait réussi ou non si elle a des annotations)
                 dataset.add_image(image)
             
-            # Validation et journalisation des statistiques
-            if invalid_coords_count > 0:
-                self.logger.warning(f"Total des annotations avec coordonnées invalides: {invalid_coords_count}")
-            
-            # Valider le dataset
-            validation = dataset.validate_dataset()
-            if not validation["valid"]:
-                self.logger.warning(f"Validation du dataset échouée : {validation['errors']}")
-                # On continue quand même, car certaines images peuvent être valides
-            
-            # Statistiques finales pour aider au debugging
-            self.logger.info(
-                f"Import terminé: {len(dataset.images)} images ajoutées, {total_annotations} annotations, "
-                f"{images_with_annotations} images avec annotations"
-            )
+            # Validation et journalisation des statistiques complètes
+            self.logger.info(f"Import terminé: {len(dataset.images)}/{len(images)} images ajoutées")
+            self.logger.info(f"Statistiques d'import:")
+            self.logger.info(f"- Images avec annotations: {images_with_annotations}")
+            self.logger.info(f"- Total annotations: {total_annotations}")
+            self.logger.info(f"- Annotations invalides: {invalid_coords_count}")
+            self.logger.info(f"- Téléchargements réussis: {total_downloads}")
+            self.logger.info(f"- Téléchargements échoués: {download_failures}")
             
             # Si aucune image n'a d'annotation, c'est probablement un problème
             if images_with_annotations == 0 and len(dataset.images) > 0:
@@ -218,6 +159,107 @@ class ImportService:
             import traceback
             self.logger.error(traceback.format_exc())
             raise ImportError(f"Échec de l'import Mapillary : {str(e)}")
+
+    def _is_valid_annotation(self, annotation, image_id: str) -> bool:
+        """
+        Vérifie si une annotation est valide.
+        
+        Args:
+            annotation: L'annotation à vérifier
+            image_id: ID de l'image associée
+            
+        Returns:
+            True si l'annotation est valide
+        """
+        try:
+            # Vérifier que les coordonnées sont dans les limites (0-1)
+            if not hasattr(annotation, 'bbox'):
+                self.logger.warning(f"Annotation sans bbox pour l'image {image_id}")
+                return False
+                
+            if (annotation.bbox.x < 0 or annotation.bbox.x > 1 or
+                annotation.bbox.y < 0 or annotation.bbox.y > 1 or
+                annotation.bbox.width <= 0 or annotation.bbox.width > 1 or
+                annotation.bbox.height <= 0 or annotation.bbox.height > 1 or
+                annotation.bbox.x + annotation.bbox.width > 1 or
+                annotation.bbox.y + annotation.bbox.height > 1):
+                
+                self.logger.warning(
+                    f"Annotation ignorée pour l'image {image_id} - coordonnées hors limites: "
+                    f"x={annotation.bbox.x}, y={annotation.bbox.y}, "
+                    f"width={annotation.bbox.width}, height={annotation.bbox.height}"
+                )
+                return False
+                
+            # Vérifier la classe
+            if not hasattr(annotation, 'class_id'):
+                self.logger.warning(f"Annotation sans class_id pour l'image {image_id}")
+                return False
+            
+            return True
+        except Exception as e:
+            self.logger.warning(f"Erreur lors de la validation de l'annotation: {str(e)}")
+            return False
+
+    def _download_and_process_image(self, image: Image, output_dir: Path) -> bool:
+        """
+        Télécharge et traite une image.
+        
+        Args:
+            image: Image à télécharger
+            output_dir: Répertoire de destination
+            
+        Returns:
+            True si le téléchargement et le traitement ont réussi
+        """
+        try:
+            # Vérifier que le chemin d'image est valide
+            if not hasattr(image, 'path') or not image.path:
+                self.logger.warning(f"Chemin d'image invalide pour {image.id}")
+                return False
+                
+            # S'assurer que l'URL a un préfixe https:// si nécessaire
+            image_path = str(image.path)
+            if image_path and not image_path.startswith(('http://', 'https://')):
+                image_path = f"https://{image_path}"
+                
+            self.logger.debug(f"Téléchargement de l'image depuis: {image_path}")
+            image_data = self.api_service.download_image(image_path)
+            
+            if not image_data:
+                self.logger.warning(f"Échec du téléchargement de l'image {image.id}")
+                return False
+            
+            # Sauvegarder l'image localement
+            file_path = output_dir / f"{image.id}.jpg"
+            
+            # Ne pas réécrire le fichier s'il existe déjà et a la bonne taille
+            if file_path.exists() and file_path.stat().st_size > 0:
+                self.logger.debug(f"Image déjà téléchargée: {file_path}")
+            else:
+                with open(file_path, 'wb') as f:
+                    f.write(image_data)
+                self.logger.debug(f"Image sauvegardée localement: {file_path}")
+            
+            # Mettre à jour le chemin de l'image vers le chemin local
+            image.path = file_path
+            
+            # Vérifier les dimensions réelles de l'image
+            try:
+                from PIL import Image as PILImage
+                with PILImage.open(file_path) as img:
+                    image.width, image.height = img.size
+                    self.logger.debug(f"Dimensions réelles de l'image: {image.width}x{image.height}")
+            except Exception as e:
+                self.logger.warning(f"Impossible de déterminer les dimensions de l'image: {str(e)}")
+                # Si on ne peut pas lire les dimensions, garder les valeurs par défaut
+            
+            return True
+        except Exception as e:
+            self.logger.warning(f"Impossible de télécharger/traiter l'image {image.id}: {str(e)}")
+            import traceback
+            self.logger.warning(traceback.format_exc())
+            return False
     
     def import_from_local(
         self, 
