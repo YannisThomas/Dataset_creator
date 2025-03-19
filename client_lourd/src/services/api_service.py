@@ -259,7 +259,7 @@ class RateLimiter:
     
     def __init__(
         self, 
-        requests_per_minute: int = 60,
+        requests_per_minute: int = 500,
         requests_per_day: int = 10000,
         logger: Optional[Logger] = None
     ):
