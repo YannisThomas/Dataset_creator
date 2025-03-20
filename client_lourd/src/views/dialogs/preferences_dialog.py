@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QFormLayout
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from pathlib import Path
 from typing import Dict, Optional, Any
 
@@ -23,6 +23,9 @@ from src.views.dialogs.base_dialog import BaseDialog
 from src.utils.config import ConfigManager
 from src.controllers.config_controller import ConfigController
 from src.controllers.controller_manager import ControllerManager
+from src.utils.theme_manager import ThemeManager
+from src.utils.translation_manager import TranslationManager
+from src.utils.app_utils import tr  # Importation de la fonction de traduction utilitaire
 
 class PreferencesDialog(BaseDialog):
     """
@@ -35,6 +38,8 @@ class PreferencesDialog(BaseDialog):
         config_manager: Optional[ConfigManager] = None,
         config_controller: Optional[ConfigController] = None,
         controller_manager: Optional[ControllerManager] = None,
+        theme_manager: Optional[ThemeManager] = None,
+        translation_manager: Optional[TranslationManager] = None,
         parent=None
     ):
         """
@@ -44,13 +49,19 @@ class PreferencesDialog(BaseDialog):
             config_manager: Gestionnaire de configuration
             config_controller: Contrôleur de configuration
             controller_manager: Gestionnaire de contrôleurs
+            theme_manager: Gestionnaire de thèmes
+            translation_manager: Gestionnaire de traductions
             parent: Widget parent
         """
         super().__init__(
             parent=parent,
             controller_manager=controller_manager,
-            title="Préférences"
+            title=tr("Dialogs.preferences_title", "Préférences")
         )
+        
+        # Gestionnaires
+        self.theme_manager = theme_manager
+        self.translation_manager = translation_manager
         
         # Utiliser le gestionnaire de configuration fourni ou celui du controller_manager
         self.config_manager = config_manager
@@ -74,9 +85,37 @@ class PreferencesDialog(BaseDialog):
         
         self.resize(600, 400)
         
+        # Créer l'interface
         self._create_ui()
         self._load_current_values()
         
+    def retranslate_ui(self):
+        """
+        Retraduit tous les éléments statiques de l'interface.
+        """
+        # Mettre à jour le titre de la fenêtre
+        self.setWindowTitle(tr("Dialogs.preferences_title", "Préférences"))
+        
+        # Mise à jour des onglets
+        self.tab_widget.setTabText(0, tr("Dialogs.interface", "Interface"))
+        self.tab_widget.setTabText(1, tr("Dialogs.data", "Données"))
+        self.tab_widget.setTabText(2, tr("Dialogs.system", "Système"))
+        
+        # Interface Tab
+        self.ui_group.setTitle(tr("Dialogs.interface_settings", "Paramètres d'interface"))
+        self.language_label.setText(tr("Dialogs.language", "Langue:"))
+        self.theme_label.setText(tr("Dialogs.theme", "Thème:"))
+        self.recent_datasets_label.setText(tr("Dialogs.recent_datasets", "Datasets récents:"))
+        
+        # Dimensions Group
+        self.dimensions_group.setTitle(tr("Dialogs.window_dimensions", "Dimensions de la fenêtre"))
+        self.width_label.setText(tr("Dialogs.width", "Largeur:"))
+        self.height_label.setText(tr("Dialogs.height", "Hauteur:"))
+        
+        # Buttons
+        self.save_button.setText(tr("Dialogs.save", "Enregistrer"))
+        self.cancel_button.setText(tr("Dialogs.cancel", "Annuler"))
+    
     def _create_ui(self):
         """Crée l'interface utilisateur du dialogue."""
         layout = QVBoxLayout(self)
@@ -86,28 +125,28 @@ class PreferencesDialog(BaseDialog):
         
         # Onglet Interface
         ui_tab = self._create_ui_tab()
-        self.tab_widget.addTab(ui_tab, "Interface")
+        self.tab_widget.addTab(ui_tab, tr("Dialogs.interface", "Interface"))
         
         # Onglet Données
         data_tab = self._create_data_tab()
-        self.tab_widget.addTab(data_tab, "Données")
+        self.tab_widget.addTab(data_tab, tr("Dialogs.data", "Données"))
         
         # Onglet Système
         system_tab = self._create_system_tab()
-        self.tab_widget.addTab(system_tab, "Système")
+        self.tab_widget.addTab(system_tab, tr("Dialogs.system", "Système"))
         
         layout.addWidget(self.tab_widget)
         
         # Boutons
         buttons_layout = QHBoxLayout()
-        save_button = QPushButton("Enregistrer")
-        save_button.clicked.connect(self._save_preferences)
-        cancel_button = QPushButton("Annuler")
-        cancel_button.clicked.connect(self.reject)
+        self.save_button = QPushButton(tr("Dialogs.save", "Enregistrer"))
+        self.save_button.clicked.connect(self._save_preferences)
+        self.cancel_button = QPushButton(tr("Dialogs.cancel", "Annuler"))
+        self.cancel_button.clicked.connect(self.reject)
         
         buttons_layout.addStretch()
-        buttons_layout.addWidget(save_button)
-        buttons_layout.addWidget(cancel_button)
+        buttons_layout.addWidget(self.save_button)
+        buttons_layout.addWidget(self.cancel_button)
         
         layout.addLayout(buttons_layout)
         
@@ -117,45 +156,56 @@ class PreferencesDialog(BaseDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Interface
-        ui_group = QGroupBox("Interface utilisateur")
+        self.ui_group = QGroupBox(tr("Dialogs.interface_settings", "Paramètres d'interface"))
         ui_layout = QFormLayout()
         
         # Langue
+        self.language_label = QLabel(tr("Dialogs.language", "Langue:"))
         self.language_combo = QComboBox()
-        for code, name in self.config_controller.get_supported_languages().items():
-            self.language_combo.addItem(name, code)
-        ui_layout.addRow("Langue:", self.language_combo)
+        # Vérifier si le gestionnaire de traduction existe
+        if self.translation_manager:
+            for code, name in self.translation_manager.get_available_languages().items():
+                self.language_combo.addItem(name, code)
+        
+        ui_layout.addRow(self.language_label, self.language_combo)
         
         # Thème
+        self.theme_label = QLabel(tr("Dialogs.theme", "Thème:"))
         self.theme_combo = QComboBox()
-        for code, name in self.config_controller.get_supported_themes().items():
-            self.theme_combo.addItem(name, code)
-        ui_layout.addRow("Thème:", self.theme_combo)
+        # Vérifier si le gestionnaire de thème existe
+        if self.theme_manager:
+            for code, name in self.theme_manager.get_available_themes().items():
+                self.theme_combo.addItem(name, code)
+        
+        ui_layout.addRow(self.theme_label, self.theme_combo)
         
         # Nombre de datasets récents
+        self.recent_datasets_label = QLabel(tr("Dialogs.recent_datasets", "Datasets récents:"))
         self.recent_datasets_spin = QSpinBox()
         self.recent_datasets_spin.setRange(1, 10)
-        ui_layout.addRow("Datasets récents:", self.recent_datasets_spin)
+        ui_layout.addRow(self.recent_datasets_label, self.recent_datasets_spin)
         
-        ui_group.setLayout(ui_layout)
-        layout.addWidget(ui_group)
+        self.ui_group.setLayout(ui_layout)
+        layout.addWidget(self.ui_group)
         
         # Groupe Dimensions
-        dimensions_group = QGroupBox("Dimensions de la fenêtre")
+        self.dimensions_group = QGroupBox(tr("Dialogs.window_dimensions", "Dimensions de la fenêtre"))
         dimensions_layout = QFormLayout()
         
         # Largeur
+        self.width_label = QLabel(tr("Dialogs.width", "Largeur:"))
         self.width_spin = QSpinBox()
         self.width_spin.setRange(800, 3840)
-        dimensions_layout.addRow("Largeur:", self.width_spin)
+        dimensions_layout.addRow(self.width_label, self.width_spin)
         
         # Hauteur
+        self.height_label = QLabel(tr("Dialogs.height", "Hauteur:"))
         self.height_spin = QSpinBox()
         self.height_spin.setRange(600, 2160)
-        dimensions_layout.addRow("Hauteur:", self.height_spin)
+        dimensions_layout.addRow(self.height_label, self.height_spin)
         
-        dimensions_group.setLayout(dimensions_layout)
-        layout.addWidget(dimensions_group)
+        self.dimensions_group.setLayout(dimensions_layout)
+        layout.addWidget(self.dimensions_group)
         
         layout.addStretch()
         return tab
@@ -245,25 +295,24 @@ class PreferencesDialog(BaseDialog):
     
     def _load_current_values(self):
         """Charge les valeurs actuelles dans l'interface."""
-        # Interface
-        self._set_combo_by_data(self.language_combo, self.config.ui.language)
-        self._set_combo_by_data(self.theme_combo, self.config.ui.theme)
+        # Langue
+        if self.translation_manager:
+            current_language = self.translation_manager.get_current_language()
+            current_index = self.language_combo.findData(current_language)
+            if current_index >= 0:
+                self.language_combo.setCurrentIndex(current_index)
+        
+        # Thème
+        if self.theme_manager:
+            current_theme = self.theme_manager.get_current_theme()
+            current_index = self.theme_combo.findData(current_theme)
+            if current_index >= 0:
+                self.theme_combo.setCurrentIndex(current_index)
+        
+        # Autres paramètres d'interface
         self.recent_datasets_spin.setValue(self.config.ui.max_recent_datasets)
         self.width_spin.setValue(self.config.ui.window_width)
         self.height_spin.setValue(self.config.ui.window_height)
-        
-        # Données
-        self.base_dir_edit.setText(str(self.config.storage.base_dir))
-        self.cache_size_spin.setValue(self.config.storage.max_cache_size_mb)
-        
-        # Cocher les formats supportés
-        for cb in self.formats_checkboxes:
-            cb.setChecked(cb.text() in self.config.dataset.supported_formats)
-        
-        # Système
-        self.debug_check.setChecked(self.config.debug_mode)
-        self.api_url.setText(self.config.api.mapillary_url)
-        self.timeout_spin.setValue(self.config.api.request_timeout)
         
         # Sauvegarder les valeurs originales
         self._save_original_values()
@@ -384,7 +433,7 @@ class PreferencesDialog(BaseDialog):
             )
     
     def _save_preferences(self):
-        """Sauvegarde les préférences via le contrôleur."""
+        """Sauvegarde les préférences."""
         try:
             # Collecter les mises à jour
             updates = {
@@ -394,62 +443,34 @@ class PreferencesDialog(BaseDialog):
                     "max_recent_datasets": self.recent_datasets_spin.value(),
                     "window_width": self.width_spin.value(),
                     "window_height": self.height_spin.value()
-                },
-                "storage": {
-                    "base_dir": self.base_dir_edit.text(),
-                    "max_cache_size_mb": self.cache_size_spin.value()
-                },
-                "dataset": {
-                    "supported_formats": [cb.text() for cb in self.formats_checkboxes if cb.isChecked()]
-                },
-                "debug_mode": self.debug_check.isChecked(),
-                "api": {
-                    "mapillary_url": self.api_url.text(),
-                    "request_timeout": self.timeout_spin.value()
                 }
             }
             
-            # Valider les paramètres
-            api_validation = self.config_controller.validate_api_config(updates["api"])
-            if not api_validation["valid"]:
-                error_text = "Erreurs de validation de l'API:\n\n"
-                for error in api_validation["errors"]:
-                    error_text += f"- {error}\n"
-                self.show_error("Erreur de validation", error_text)
-                self.tab_widget.setCurrentIndex(2)  # Aller à l'onglet Système
-                return
+            # Appliquer la langue
+            if self.translation_manager:
+                language = updates["ui"]["language"]
+                self.translation_manager.apply_language(language)
             
-            storage_validation = self.config_controller.validate_storage_config(updates["storage"])
-            if not storage_validation["valid"]:
-                error_text = "Erreurs de validation du stockage:\n\n"
-                for error in storage_validation["errors"]:
-                    error_text += f"- {error}\n"
-                self.show_error("Erreur de validation", error_text)
-                self.tab_widget.setCurrentIndex(1)  # Aller à l'onglet Données
-                return
-            
-            # Afficher les avertissements mais permettre la sauvegarde
-            warnings = api_validation.get("warnings", []) + storage_validation.get("warnings", [])
-            if warnings:
-                warning_text = "Avertissements de validation:\n\n"
-                for warning in warnings:
-                    warning_text += f"- {warning}\n"
-                warning_text += "\nVoulez-vous continuer quand même?"
-                if not self.confirm_action("Avertissement", warning_text):
-                    return
+            # Appliquer le thème
+            if self.theme_manager:
+                theme = updates["ui"]["theme"]
+                self.theme_manager.apply_theme(theme)
             
             # Sauvegarder via le contrôleur
             config_path = Path("config.json")
             self.config_controller.save_config(updates, config_path)
             
+            # Log
             self.logger.info("Préférences sauvegardées avec succès")
+            
+            # Accepter le dialogue
             self.accept()
             
         except Exception as e:
             self.logger.error(f"Échec de la sauvegarde des préférences: {str(e)}")
             self.show_error(
-                "Erreur",
-                f"Échec de la sauvegarde des préférences:\n{str(e)}"
+                tr("Messages.error", "Erreur"),
+                tr("Messages.save_failed", f"Échec de la sauvegarde des préférences:\n{str(e)}")
             )
     
     def has_changes(self) -> bool:
@@ -499,3 +520,14 @@ class PreferencesDialog(BaseDialog):
             event.accept()
         else:
             event.accept()
+
+    def changeEvent(self, event):
+        """
+        Gère les événements de changement.
+        Utile pour intercepter les changements de langue.
+        """
+        if event.type() == QEvent.Type.LanguageChange:
+            # Retraduite l'interface
+            self.retranslate_ui()
+        
+        super().changeEvent(event)

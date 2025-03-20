@@ -15,11 +15,13 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QApplication
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QEvent
 from pathlib import Path
 
 from src.controllers.controller_manager import ControllerManager
 from src.utils.logger import Logger
+from src.utils.theme_manager import ThemeManager
+from src.utils.translation_manager import TranslationManager
 from src.core.exceptions import YoloDatasetError
 from src.views.dataset_view import DatasetView
 from src.views.dialogs.new_dataset_dialog import NewDatasetDialog
@@ -27,7 +29,7 @@ from src.views.dialogs.preferences_dialog import PreferencesDialog
 from src.views.dialogs.mapillary_import_dialog import MapillaryImportDialog
 from src.views.dialogs.config_dialog import ConfigDialog
 from src.utils.config import ConfigManager
-
+from src.utils.app_utils import tr  # Importation de la fonction de traduction utilitaire
 
 class MainWindow(QMainWindow):
     """
@@ -35,18 +37,31 @@ class MainWindow(QMainWindow):
     Cette classe utilise les contrôleurs pour effectuer les opérations métier.
     """
     
-    def __init__(self, controller_manager: ControllerManager = None):
+    def __init__(
+        self, 
+        controller_manager: ControllerManager = None,
+        theme_manager: ThemeManager = None,
+        translation_manager: TranslationManager = None
+    ):
         """
         Initialise la fenêtre principale.
         
         Args:
             controller_manager: Gestionnaire de contrôleurs
+            theme_manager: Gestionnaire de thèmes
+            translation_manager: Gestionnaire de traductions
         """
         super().__init__()
         
         # Initialisation
         self.logger = Logger()
         self.controller_manager = controller_manager or ControllerManager()
+        
+        # Gestionnaires de thème et de traduction
+        self.theme_manager = theme_manager or self.controller_manager.theme_manager
+        self.translation_manager = translation_manager or self.controller_manager.translation_manager
+        
+        # Contrôleurs
         self.dataset_controller = self.controller_manager.dataset_controller
         self.import_controller = self.controller_manager.import_controller
         self.export_controller = self.controller_manager.export_controller
@@ -54,7 +69,7 @@ class MainWindow(QMainWindow):
         
         # Configuration de la fenêtre
         config = self.controller_manager.config_manager.get_config()
-        self.setWindowTitle("YOLO Dataset Manager")
+        self.setWindowTitle(tr("MainWindow.title", "YOLO Dataset Manager"))
         self.resize(config.ui.window_width, config.ui.window_height)
         
         # Création de l'interface
@@ -62,76 +77,96 @@ class MainWindow(QMainWindow):
         self._create_central_widget()
         self._create_status_bar()
         
+        # Ajouter une méthode de retranslation
+        self.retranslate_ui()
+        
         self.logger.info("Interface principale initialisée")
         
+    def retranslate_ui(self):
+        """
+        Retraduit tous les éléments statiques de l'interface.
+        Cette méthode est appelée lors des changements de langue.
+        """
+        # Titre de la fenêtre
+        self.setWindowTitle(tr("MainWindow.title", "YOLO Dataset Manager"))
+        
+        # Mise à jour des menus
+        self._create_menu_bar()  # Recréer le menu avec les nouvelles traductions
+        
+
     def _create_menu_bar(self):
         """Crée la barre de menu."""
+        # Supprimer la barre de menu existante si elle existe
+        old_menubar = self.menuBar()
+        if old_menubar:
+            old_menubar.clear()
+        
         menubar = self.menuBar()
         
         # Menu Fichier
-        file_menu = menubar.addMenu("&Fichier")
+        file_menu = menubar.addMenu(tr("MainWindow.file_menu", "&Fichier"))
         
         # Actions du menu Fichier
-        new_dataset_action = file_menu.addAction("&Nouveau Dataset...")
+        new_dataset_action = file_menu.addAction(tr("MainWindow.new_dataset", "&Nouveau Dataset..."))
         new_dataset_action.triggered.connect(self._on_new_dataset)
         
-        open_dataset_action = file_menu.addAction("&Ouvrir Dataset...")
+        open_dataset_action = file_menu.addAction(tr("MainWindow.open_dataset", "&Ouvrir Dataset..."))
         open_dataset_action.triggered.connect(self._on_open_dataset)
         
         # Sous-menu Import
-        import_menu = file_menu.addMenu("&Importer")
-        import_mapillary_action = import_menu.addAction("Depuis &Mapillary...")
+        import_menu = file_menu.addMenu(tr("MainWindow.import_menu", "&Importer"))
+        import_mapillary_action = import_menu.addAction(tr("MainWindow.import_mapillary", "Depuis &Mapillary..."))
         import_mapillary_action.triggered.connect(self._on_import_mapillary)
-        import_local_action = import_menu.addAction("Depuis des fichiers &locaux...")
+        import_local_action = import_menu.addAction(tr("MainWindow.import_local", "Depuis des fichiers &locaux..."))
         import_local_action.triggered.connect(self._on_import_local)
         
         # Sous-menu Export
-        export_menu = file_menu.addMenu("&Exporter")
-        export_yolo_action = export_menu.addAction("Format &YOLO")
+        export_menu = file_menu.addMenu(tr("MainWindow.export_menu", "&Exporter"))
+        export_yolo_action = export_menu.addAction(tr("MainWindow.export_yolo", "Format &YOLO"))
         export_yolo_action.triggered.connect(lambda: self._on_export("yolo"))
-        export_coco_action = export_menu.addAction("Format &COCO")
+        export_coco_action = export_menu.addAction(tr("MainWindow.export_coco", "Format &COCO"))
         export_coco_action.triggered.connect(lambda: self._on_export("coco"))
-        export_voc_action = export_menu.addAction("Format &VOC")
+        export_voc_action = export_menu.addAction(tr("MainWindow.export_voc", "Format &VOC"))
         export_voc_action.triggered.connect(lambda: self._on_export("voc"))
         
         file_menu.addSeparator()
         
-        preferences_action = file_menu.addAction("&Préférences...")
+        preferences_action = file_menu.addAction(tr("Dialogs.preferences_title", "&Préférences..."))
         preferences_action.triggered.connect(self._on_preferences)
         
         file_menu.addSeparator()
         
-        quit_action = file_menu.addAction("&Quitter")
+        quit_action = file_menu.addAction(tr("Dialogs.cancel", "&Quitter"))
         quit_action.triggered.connect(self.close)
         
         # Menu Edit
-        edit_menu = menubar.addMenu("&Édition")
+        edit_menu = menubar.addMenu(tr("MainWindow.edit_menu", "&Édition"))
         
-        validate_action = edit_menu.addAction("&Valider Dataset")
+        validate_action = edit_menu.addAction(tr("MainWindow.validate_dataset", "&Valider Dataset"))
         validate_action.triggered.connect(self._on_validate_dataset)
         
         # Menu View
-        view_menu = menubar.addMenu("&Affichage")
+        view_menu = menubar.addMenu(tr("MainWindow.view_menu", "&Affichage"))
         
         # Actions du menu View
-        show_toolbar_action = view_menu.addAction("Afficher la barre d'&outils")
+        show_toolbar_action = view_menu.addAction(tr("MainWindow.show_toolbar", "Afficher la barre d'&outils"))
         show_toolbar_action.setCheckable(True)
         show_toolbar_action.setChecked(True)
         
-        show_statusbar_action = view_menu.addAction("Afficher la barre d'&état")
+        show_statusbar_action = view_menu.addAction(tr("MainWindow.show_statusbar", "Afficher la barre d'&état"))
         show_statusbar_action.setCheckable(True)
         show_statusbar_action.setChecked(True)
         
         # Menu Tools
-        tools_menu = menubar.addMenu("&Outils")
+        tools_menu = menubar.addMenu(tr("MainWindow.tools_menu", "&Outils"))
         
-        config_action = tools_menu.addAction("&Configuration...")
+        config_action = tools_menu.addAction(tr("MainWindow.configuration", "&Configuration..."))
         config_action.triggered.connect(self._on_configuration)
         
         # Menu Help
-        help_menu = menubar.addMenu("&Aide")
+        help_menu = menubar.addMenu(tr("MainWindow.help_menu", "&Aide"))
         
-        about_action = help_menu.addAction("À &propos")
+        about_action = help_menu.addAction(tr("MainWindow.about", "À &propos"))
         about_action.triggered.connect(self._on_about)
         
     def _create_central_widget(self):
@@ -415,7 +450,12 @@ class MainWindow(QMainWindow):
             
     def _on_preferences(self):
         """Gère l'ouverture des préférences."""
-        dialog = PreferencesDialog(self.controller_manager.config_manager, self)
+        dialog = PreferencesDialog(
+            config_manager=self.controller_manager.config_manager, 
+            parent=self,
+            theme_manager=self.theme_manager,
+            translation_manager=self.translation_manager
+        )
         if dialog.exec():
             # Recharger la configuration et réinitialiser les contrôleurs
             self.controller_manager.config_manager = ConfigManager()
@@ -427,7 +467,11 @@ class MainWindow(QMainWindow):
             self.export_controller = self.controller_manager.export_controller
             self.api_controller = self.controller_manager.api_controller
             
-            self.statusBar().showMessage("Préférences mises à jour")
+            # Retraduite l'interface
+            self.retranslate_ui()
+            
+            self.statusBar().showMessage(tr("Messages.preferences_success", "Préférences mises à jour"), 3000)
+    
             
     def _on_validate_dataset(self):
         """Valide le dataset actuel."""
@@ -463,7 +507,12 @@ class MainWindow(QMainWindow):
             
     def _on_configuration(self):
         """Ouvre le dialogue de configuration."""
-        dialog = ConfigDialog(self.controller_manager.config_manager, self)
+        dialog = ConfigDialog(
+            config_manager=self.controller_manager.config_manager, 
+            parent=self,
+            theme_manager=self.theme_manager,
+            translation_manager=self.translation_manager
+        )
         if dialog.exec():
             # Recharger la configuration si nécessaire
             self.controller_manager.config_manager = ConfigManager()
@@ -475,16 +524,21 @@ class MainWindow(QMainWindow):
             self.export_controller = self.controller_manager.export_controller
             self.api_controller = self.controller_manager.api_controller
             
-            self.statusBar().showMessage("Configuration mise à jour", 3000)
+            # Retraduite l'interface
+            self.retranslate_ui()
+            
+            self.statusBar().showMessage(tr("Messages.configuration_success", "Configuration mise à jour"), 3000)
+    
             
     def _on_about(self):
         """Affiche la boîte de dialogue À propos."""
         QMessageBox.about(
             self,
-            "À propos de YOLO Dataset Manager",
-            "YOLO Dataset Manager\n\n"
-            "Un outil pour gérer et préparer des datasets pour l'entraînement YOLO.\n\n"
-            "Version: 1.0.0"
+            tr("MainWindow.about_title", "À propos de YOLO Dataset Manager"),
+            tr("MainWindow.about_text", 
+               "YOLO Dataset Manager\n\n"
+               "Un outil pour gérer et préparer des datasets pour l'entraînement YOLO.\n\n"
+               "Version: 1.0.0")
         )
         
     def closeEvent(self, event):
@@ -611,3 +665,14 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No
         )
         return reply == QMessageBox.StandardButton.Yes
+    
+    def changeEvent(self, event):
+        """
+        Gère les événements de changement.
+        Utile pour intercepter les changements de langue et de thème.
+        """
+        if event.type() == QEvent.Type.LanguageChange:
+            # Retraduite l'interface
+            self.retranslate_ui()
+        
+        super().changeEvent(event)

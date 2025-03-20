@@ -1,0 +1,150 @@
+
+            /* Thème sombre pour YOLO Dataset Manager */
+            
+            QMainWindow, QDialog {
+                background-color: #303030;
+                color: #e0e0e0;
+            }
+            
+            QMenuBar {
+                background-color: #353535;
+                border-bottom: 1px solid #404040;
+            }
+            
+            QMenuBar::item {
+                background-color: transparent;
+                padding: 5px 10px;
+                border-radius: 4px;
+            }
+            
+            QMenuBar::item:selected {
+                background-color: #454545;
+            }
+            
+            QMenu {
+                background-color: #404040;
+                border: 1px solid #505050;
+            }
+            
+            QMenu::item {
+                padding: 5px 30px 5px 20px;
+                border-radius: 4px;
+            }
+            
+            QMenu::item:selected {
+                background-color: #505050;
+            }
+            
+            QPushButton {
+                background-color: #454545;
+                border: 1px solid #555555;
+                padding: 5px 10px;
+                border-radius: 4px;
+                color: #e0e0e0;
+            }
+            
+            QPushButton:hover {
+                background-color: #555555;
+            }
+            
+            QPushButton:pressed {
+                background-color: #606060;
+            }
+            
+            QGroupBox {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                margin-top: 1em;
+                padding-top: 10px;
+                color: #e0e0e0;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top center;
+                padding: 0 5px;
+                color: #e0e0e0;
+            }
+            
+            QListWidget, QTreeWidget, QTableWidget {
+                background-color: #404040;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #e0e0e0;
+            }
+            
+            QTabWidget::pane {
+                border: 1px solid #505050;
+                border-radius: 4px;
+                background-color: #353535;
+            }
+            
+            QTabBar::tab {
+                background-color: #454545;
+                padding: 5px 10px;
+                border: 1px solid #505050;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                color: #e0e0e0;
+            }
+            
+            QTabBar::tab:selected {
+                background-color: #353535;
+                border-bottom: none;
+            }
+            
+            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+                background-color: #404040;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                padding: 3px;
+                color: #e0e0e0;
+            }
+            
+            QProgressBar {
+                border: 1px solid #505050;
+                border-radius: 4px;
+                background-color: #404040;
+                text-align: center;
+                color: #e0e0e0;
+            }
+            
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                width: 10px;
+                margin: 0px;
+            }
+            
+            QScrollBar:vertical {
+                border: none;
+                background-color: #404040;
+                width: 12px;
+                margin: 0px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background-color: #606060;
+                min-height: 20px;
+                border-radius: 6px;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QLabel {
+                color: #e0e0e0;
+            }
+            
+            QCheckBox {
+                color: #e0e0e0;
+            }
+            
+            QComboBox QAbstractItemView {
+                background-color: #404040;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                color: #e0e0e0;
+            }
+            

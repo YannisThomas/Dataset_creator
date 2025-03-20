@@ -1,189 +1,151 @@
 # src/controllers/controller_manager.py
 
-from typing import Dict, Optional, Any
+from typing import Optional, Any
 
-from src.utils.config import ConfigManager
 from src.utils.logger import Logger
-from src.services.database_service import DatabaseService
+from src.utils.config import ConfigManager
+
+# Import services
 from src.services.api_service import APIService
 from src.services.dataset_service import DatasetService
-from src.services.export_service import ExportService
 from src.services.import_service import ImportService
+from src.services.export_service import ExportService
 
+# Import controllers
+from src.controllers.config_controller import ConfigController
 from src.controllers.dataset_controller import DatasetController
 from src.controllers.import_controller import ImportController
 from src.controllers.export_controller import ExportController
 from src.controllers.api_controller import APIController
-from src.controllers.config_controller import ConfigController
+
+# Optional imports for theme and translation managers
+try:
+    from src.utils.theme_manager import ThemeManager
+    from src.utils.translation_manager import TranslationManager
+except ImportError:
+    ThemeManager = None
+    TranslationManager = None
 
 class ControllerManager:
     """
-    Gestionnaire centralisé pour les contrôleurs de l'application.
+    Gestionnaire centralisé des contrôleurs de l'application.
     
-    Cette classe est responsable de:
-    - Créer et initialiser les contrôleurs
-    - Injecter les services dans les contrôleurs
-    - Gérer le cycle de vie des contrôleurs
-    - Centraliser les dépendances
+    Fournit un accès unique à tous les contrôleurs et assure leur
+    configuration cohérente.
     """
     
     def __init__(
         self, 
+        logger: Optional[Logger] = None,
         config_manager: Optional[ConfigManager] = None,
-        logger: Optional[Logger] = None
+        theme_manager: Optional[Any] = None, 
+        translation_manager: Optional[Any] = None
     ):
         """
         Initialise le gestionnaire de contrôleurs.
         
         Args:
+            logger: Logger pour les messages de débogage
             config_manager: Gestionnaire de configuration
-            logger: Gestionnaire de logs
+            theme_manager: Gestionnaire de thèmes
+            translation_manager: Gestionnaire de traductions
         """
-        # Services de base
+        # Initialiser les dépendances
         self.logger = logger or Logger()
         self.config_manager = config_manager or ConfigManager()
         
-        # Initialisation des services
-        self._init_services()
+        # Initialiser les gestionnaires de thème et de traduction
+        self.theme_manager = theme_manager
+        self.translation_manager = translation_manager
         
-        # Les contrôleurs seront créés à la demande
-        self._dataset_controller = None
-        self._import_controller = None
-        self._export_controller = None
-        self._api_controller = None
-        self._config_controller = None
-        
-        self.logger.info("ControllerManager initialized")
-    
-    def _init_services(self):
-        """Initialise les services partagés."""
-        self.database_service = DatabaseService()
-        self.api_service = APIService(self.config_manager)
-        self.dataset_service = DatasetService(self.database_service)
+        # Initialiser les services
+        self.api_service = APIService(config_manager=self.config_manager)
+        self.dataset_service = DatasetService()
+        self.import_service = ImportService()
         self.export_service = ExportService()
-        self.import_service = ImportService(self.api_service)
-    
-    @property
-    def dataset_controller(self) -> DatasetController:
-        """
-        Récupère ou crée le contrôleur de dataset.
         
-        Returns:
-            Instance du DatasetController
-        """
-        if not self._dataset_controller:
-            self._dataset_controller = DatasetController(
-                dataset_service=self.dataset_service,
-                import_service=self.import_service,
-                export_service=self.export_service,
-                logger=self.logger
-            )
-            self.logger.debug("DatasetController created")
-        return self._dataset_controller
-    
-    @property
-    def import_controller(self) -> ImportController:
-        """
-        Récupère ou crée le contrôleur d'import.
+        # Initialiser les contrôleurs
+        self._init_controllers()
         
-        Returns:
-            Instance du ImportController
-        """
-        if not self._import_controller:
-            self._import_controller = ImportController(
-                import_service=self.import_service,
-                api_service=self.api_service,
-                dataset_service=self.dataset_service,
-                logger=self.logger
-            )
-            self.logger.debug("ImportController created")
-        return self._import_controller
-    
-    @property
-    def export_controller(self) -> ExportController:
-        """
-        Récupère ou crée le contrôleur d'export.
+    def _init_controllers(self):
+        """Initialise tous les contrôleurs avec les dépendances nécessaires."""
+        # Contrôleur de configuration
+        self.config_controller = ConfigController(
+            config_manager=self.config_manager,
+            logger=self.logger
+        )
         
-        Returns:
-            Instance du ExportController
-        """
-        if not self._export_controller:
-            self._export_controller = ExportController(
-                export_service=self.export_service,
-                dataset_service=self.dataset_service,
-                logger=self.logger
-            )
-            self.logger.debug("ExportController created")
-        return self._export_controller
-    
-    @property
-    def api_controller(self) -> APIController:
-        """
-        Récupère ou crée le contrôleur d'API.
+        # Contrôleur de dataset
+        self.dataset_controller = DatasetController(
+            dataset_service=self.dataset_service,
+            logger=self.logger
+        )
         
-        Returns:
-            Instance du APIController
-        """
-        if not self._api_controller:
-            self._api_controller = APIController(
-                api_service=self.api_service,
-                dataset_service=self.dataset_service,
-                logger=self.logger
-            )
-            self.logger.debug("APIController created")
-        return self._api_controller
-    
-    def get_controller(self, controller_type: str) -> Any:
-        """
-        Récupère un contrôleur par son type.
+        # Contrôleur d'API
+        self.api_controller = APIController(
+            api_service=self.api_service,
+            dataset_service=self.dataset_service,
+            logger=self.logger
+        )
         
-        Args:
-            controller_type: Type de contrôleur ("dataset", "import", "export", "api", "config")
-            
-        Returns:
-            Instance du contrôleur demandé
-            
-        Raises:
-            ValueError: Si le type de contrôleur est inconnu
-        """
-        controller_map = {
-            "dataset": self.dataset_controller,
-            "import": self.import_controller,
-            "export": self.export_controller,
-            "api": self.api_controller,
-            "config": self.config_controller
-        }
+        # Contrôleur d'import
+        self.import_controller = ImportController(
+            import_service=self.import_service,
+            api_service=self.api_service,
+            dataset_service=self.dataset_service,
+            logger=self.logger
+        )
         
-        if controller_type not in controller_map:
-            self.logger.error(f"Unknown controller type: {controller_type}")
-            raise ValueError(f"Unknown controller type: {controller_type}")
-            
-        return controller_map[controller_type]
-    
-    @property
-    def config_controller(self) -> ConfigController:
-        """
-        Récupère ou crée le contrôleur de configuration.
-        
-        Returns:
-            Instance du ConfigController
-        """
-        if not self._config_controller:
-            self._config_controller = ConfigController(
-                config_manager=self.config_manager,
-                logger=self.logger
-            )
-            self.logger.debug("ConfigController created")
-        return self._config_controller
-        
+        # Contrôleur d'export
+        self.export_controller = ExportController(export_service=self.export_service,
+            dataset_service=self.dataset_service,
+            logger=self.logger
+        )
     def reset_controllers(self):
         """
         Réinitialise tous les contrôleurs.
-        Utile pour libérer des ressources ou après un changement de configuration.
+        Utile après un changement de configuration.
         """
-        self._dataset_controller = None
-        self._import_controller = None
-        self._export_controller = None
-        self._api_controller = None
-        self._config_controller = None
-        self.logger.info("All controllers reset")
+        # Recharger la configuration
+        self.config_manager = ConfigManager()
+        
+        # Réinitialiser les services
+        self.api_service = APIService(config_manager=self.config_manager)
+        
+        # Réinitialiser les contrôleurs
+        self._init_controllers()
+        
+        # Appliquer les nouveaux paramètres de thème et de langue si nécessaire
+        self._apply_theme_and_language()
+        
+        return self
+    
+    def _apply_theme_and_language(self):
+        """
+        Applique le thème et la langue en gérant les erreurs potentielles.
+        """
+        # Application du thème
+        if self.theme_manager:
+            try:
+                # Vérifier si la méthode apply_theme existe
+                if hasattr(self.theme_manager, 'apply_theme'):
+                    current_theme = self.theme_manager.get_current_theme()
+                    self.theme_manager.apply_theme(current_theme)
+                elif self.logger:
+                    self.logger.warning("Le gestionnaire de thème ne possède pas de méthode apply_theme")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Échec de l'application du thème: {e}")
+        
+        # Application de la langue
+        if self.translation_manager:
+            try:
+                # Vérifier si la méthode apply_language existe
+                if hasattr(self.translation_manager, 'apply_language'):
+                    current_language = self.translation_manager.get_current_language()
+                    self.translation_manager.apply_language(current_language)
+                elif self.logger:
+                    self.logger.warning("Le gestionnaire de traduction ne possède pas de méthode apply_language")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Échec de l'application de la langue: {e}")

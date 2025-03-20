@@ -9,6 +9,7 @@ from src.utils.logger import Logger
 from src.utils.config import ConfigManager
 from src.controllers.controller_manager import ControllerManager
 from src.core.exceptions import ConfigurationError
+from src.utils.app_utils import initialize_application, apply_initial_settings, setup_translation_event_filter
 
 def main():
     """
@@ -16,22 +17,34 @@ def main():
     Utilise l'architecture MVC avec injection des contrôleurs.
     """
     try:
-        # Initialiser le logger
-        log_dir = Path("data/logs")
-        logger = Logger(log_dir=log_dir)
+        # Initialiser l'application Qt en premier
+        app = QApplication(sys.argv)
+        
+        # Initialiser les gestionnaires d'application
+        logger, config_manager, theme_manager, translation_manager = initialize_application()
         logger.info("Démarrage de YOLO Dataset Manager...")
 
-        # Initialiser la configuration
-        config_manager = ConfigManager()
-        logger.info("Configuration chargée avec succès")
-        
         # Initialiser le gestionnaire de contrôleurs
-        controller_manager = ControllerManager(config_manager=config_manager, logger=logger)
+        controller_manager = ControllerManager(
+            logger=logger, 
+            config_manager=config_manager,
+            theme_manager=theme_manager,
+            translation_manager=translation_manager
+        )
         logger.info("Contrôleurs initialisés")
-
-        # Initialiser l'application Qt
-        app = QApplication(sys.argv)
-        window = MainWindow(controller_manager=controller_manager)
+        
+        # Appliquer les paramètres initiaux (thème, langue)
+        apply_initial_settings()
+        
+        # Initialiser la fenêtre principale
+        window = MainWindow(
+            controller_manager=controller_manager
+        )
+        
+        # Configurer le filtre d'événements pour les changements de langue
+        setup_translation_event_filter(window)
+        
+        # Afficher la fenêtre
         window.show()
 
         return app.exec()

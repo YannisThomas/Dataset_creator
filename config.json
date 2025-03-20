@@ -1,0 +1,13 @@
+{
+  "api": {
+    "mapillary_token": "MLY|28605705705742899|a4ca170a48a9c0d415ed3637d844012f",
+    "mapillary_url": "https://graph.mapillary.com",
+    "request_timeout": 30,
+    "max_retries": 3,
+    "batch_size": 50,
+    "fields": {
+      "detections": "id,value,geometry,area,properties"
+    }
+  },
+  "storage": {
+    "base_dir": 
