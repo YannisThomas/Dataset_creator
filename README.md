@@ -72,9 +72,9 @@ pip install -r requirements.txt
 ## 🖥️ Utilisation
 
 ### Lancement de l'Application
-Se mettre dans le fichier source Dataset_creator
+Se mettre dans le dossier source Dataset_creator/client_lourd
 ```bash
-cd votre/emplacement/Dataset_creator
+cd votre/emplacement/Dataset_creator/client_lourd
 python main.py
 ```
 
