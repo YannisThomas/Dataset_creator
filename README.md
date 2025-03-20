@@ -48,7 +48,7 @@ client_lourd/
 1. Clonez le dépôt
 ```bash
 git clone https://github.com/YannisThomas/Dataset_creator.git
-cd client_lourd
+cd votre/emplacement/Dataset_creator
 ```
 
 2. Créez un environnement virtuel
