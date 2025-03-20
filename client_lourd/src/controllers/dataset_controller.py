@@ -244,7 +244,7 @@ class DatasetController:
     
     def validate_dataset(self, dataset: Dataset) -> Dict:
         """
-        Valide un dataset
+        Valide un dataset - version corrigée
         
         Args:
             dataset: Dataset à valider
@@ -253,15 +253,31 @@ class DatasetController:
             Résultat de la validation
         """
         try:
-            # Valider via le service
-            validation = self.dataset_service.validate_dataset(dataset.name)
-            
+            # Vérifier que dataset n'est pas None
+            if dataset is None:
+                return {
+                    "valid": False,
+                    "errors": ["Dataset est None"],
+                    "warnings": []
+                }
+                
+            # Vérifier directement avec la méthode du dataset plutôt que via le service
             self.logger.info(f"Validation du dataset : {dataset.name}")
+            
+            # Appliquer directement la validation du modèle
+            validation = dataset.validate_dataset()
+            
             return validation
-        
+            
         except Exception as e:
             self.logger.error(f"Échec de validation du dataset : {str(e)}")
-            raise DatasetError(f"Validation du dataset impossible : {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {
+                "valid": False,
+                "errors": [f"Erreur de validation: {str(e)}"],
+                "warnings": []
+            }
     
     def delete_dataset(
         self, 

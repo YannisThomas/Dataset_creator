@@ -121,7 +121,11 @@ class Image(BaseModel):
             else:
                 # C'est peut-être un chemin sous forme de chaîne
                 try:
-                    return Path(self.path)
+                    path_obj = Path(self.path)
+                    # Vérifier si le chemin existe avant de le retourner
+                    if path_obj.exists():
+                        return path_obj
+                    return self.path  # Retourner la chaîne d'origine si le chemin n'existe pas
                 except:
                     return self.path
                     

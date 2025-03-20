@@ -201,6 +201,8 @@ class ImportService:
             self.logger.warning(f"Erreur lors de la validation de l'annotation: {str(e)}")
             return False
 
+
+
     def _download_and_process_image(self, image: Image, output_dir: Path) -> bool:
         """
         Télécharge et traite une image.
@@ -242,7 +244,15 @@ class ImportService:
                 self.logger.debug(f"Image sauvegardée localement: {file_path}")
             
             # Mettre à jour le chemin de l'image vers le chemin local
+            # CORRECTION: S'assurer que le chemin est un objet Path et non une chaîne
             image.path = file_path
+            
+            # Sauvegarder aussi l'URL originale dans les métadonnées pour référence
+            if 'original_url' not in image.metadata:
+                image.metadata['original_url'] = image_path
+            
+            # Ajouter un log pour confirmer la mise à jour
+            self.logger.debug(f"Chemin d'image mis à jour: {image.path} (type: {type(image.path).__name__})")
             
             # Vérifier les dimensions réelles de l'image
             try:

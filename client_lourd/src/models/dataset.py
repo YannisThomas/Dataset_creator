@@ -69,14 +69,17 @@ class Dataset(BaseModel):
             
         return stats
         
+
+
     def validate_dataset(self) -> Dict:
-        """Valide l'intégrité du jeu de données"""
+        """Valide l'intégrité du jeu de données avec une gestion robuste des chemins"""
         validation = {
             "valid": True,
             "errors": [],
             "warnings": []
         }
         
+        # 1. Vérifier les classes utilisées
         used_classes = set()
         for img in self.images:
             for ann in img.annotations:
@@ -88,21 +91,52 @@ class Dataset(BaseModel):
             validation["errors"].append(
                 f"Classes non définies utilisées dans les annotations: {undefined_classes}"
             )
-            
+        
+        # 2. Vérifier l'existence des fichiers d'images
         for img in self.images:
-            if not img.path.exists():
-                validation["valid"] = False
-                validation["errors"].append(
-                    f"Fichier image manquant: {img.path}"
-                )
+            try:
+                # Récupérer le chemin de l'image
+                img_path = img.path
                 
+                # Si c'est une chaîne qui ressemble à une URL, ne pas vérifier l'existence
+                if isinstance(img_path, str) and (img_path.startswith('http:') or img_path.startswith('https:')):
+                    # Stocker un avertissement et continuer
+                    validation["warnings"].append(f"Impossible de vérifier l'existence de l'URL: {img_path}")
+                    continue
+                    
+                # Convertir en Path si c'est une chaîne
+                if isinstance(img_path, str):
+                    from pathlib import Path
+                    img_path = Path(img_path)
+                
+                # Vérifier l'existence du fichier
+                if not img_path.exists():
+                    validation["valid"] = False
+                    validation["errors"].append(f"Fichier image manquant: {img_path}")
+            except Exception as e:
+                # En cas d'erreur, ajouter un avertissement et continuer
+                validation["warnings"].append(f"Erreur lors de la vérification du chemin pour {img.id}: {str(e)}")
+        
+        # 3. Vérifier les annotations
         for img in self.images:
             for ann in img.annotations:
-                bbox = ann.bbox
-                if (bbox.x + bbox.width > 1 or bbox.y + bbox.height > 1):
+                try:
+                    bbox = ann.bbox
+                    # Vérifier les limites des coordonnées
+                    if bbox.x < 0 or bbox.y < 0 or bbox.width <= 0 or bbox.height <= 0:
+                        validation["errors"].append(
+                            f"Boîte englobante invalide dans l'image {img.id}: coordonnées négatives ou dimensions nulles"
+                        )
+                        validation["valid"] = False
+                    elif bbox.x + bbox.width > 1 or bbox.y + bbox.height > 1:
+                        validation["errors"].append(
+                            f"Boîte englobante invalide dans l'image {img.id}: dépasse les limites"
+                        )
+                        validation["valid"] = False
+                except Exception as e:
                     validation["errors"].append(
-                        f"Boîte englobante invalide dans l'image {img.id}: dépasse les limites"
+                        f"Erreur lors de la validation de l'annotation dans l'image {img.id}: {str(e)}"
                     )
                     validation["valid"] = False
-                    
+        
         return validation
