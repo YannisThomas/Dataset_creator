@@ -72,8 +72,10 @@ pip install -r requirements.txt
 ## 🖥️ Utilisation
 
 ### Lancement de l'Application
+Se mettre dans le fichier source Dataset_creator
 ```bash
-python src/main.py
+cd votre/emplacement/Dataset_creator
+python main.py
 ```
 
 ### Workflow Typique
