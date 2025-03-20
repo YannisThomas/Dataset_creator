@@ -8,7 +8,6 @@ typing-extensions>=4.0.0
 # Database Dependencies
 sqlalchemy>=2.0.0
 alembic>=1.11.0
-sqlite3  # Inclus dans la bibliothèque standard de Python
 
 # UI Dependencies
 PyQt6>=6.5.0
