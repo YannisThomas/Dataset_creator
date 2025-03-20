@@ -1,9 +1,38 @@
 # 🚦 YOLO Dataset Manager 
 
-## 🌟 Présentation du Projet
+## 🌍 Description du Projet
 
-YOLO Dataset Manager est une application de bureau complète conçue pour faciliter la création, l'annotation et la gestion de datasets d'images pour la détection d'objets, en se concentrant particulièrement sur les panneaux de signalisation.
+YOLO Dataset Manager est une application de bureau innovante conçue pour révolutionner la création et la gestion de datasets d'images pour la détection d'objets, avec un focus particulier sur l'analyse des panneaux de signalisation.
 
+### 🎯 Objectif Principal
+
+Dans un monde où la cartographie et la reconnaissance automatique des infrastructures routières deviennent cruciales pour des technologies comme la conduite autonome et l'analyse de sécurité routière, YOLO Dataset Manager offre une solution complète et intuitive pour:
+
+- 🔍 Collecter des images de panneaux de signalisation
+- 🏷️ Annoter précisément les panneaux
+- 📊 Générer des datasets professionnels
+- 🔄 Exporter dans des formats compatibles avec les principaux frameworks d'apprentissage profond
+
+### 🌟 Caractéristiques Clés
+
+- **Acquisition Intelligente**: Importation directe depuis Mapillary avec filtrage géographique avancé
+- **Annotation Précise**: Interface utilisateur ergonomique pour l'annotation de panneaux
+- **Multi-Format**: Export dans les formats YOLO, COCO, et VOC
+- **Base de Données Intégrée**: Stockage et gestion robuste des datasets
+- **Flexible et Extensible**: Architecture modulaire permettant de futures améliorations
+
+### 🚀 Cas d'Usage
+
+- Recherche en vision par ordinateur
+- Développement de systèmes ADAS (Systèmes d'Aide à la Conduite)
+- Entraînement de modèles de détection d'objets
+- Analyse de l'infrastructure routière
+- Cartographie intelligente
+  
+### 🛠️ Technologies Clés
+- **Langage**: Python 3.8+
+- **Interface Utilisateur**: PyQt6
+- **API**: Mapillary
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![PyQt6](https://img.shields.io/badge/UI-PyQt6-green.svg)
 ![Mapillary](https://img.shields.io/badge/API-Mapillary-orange.svg)
