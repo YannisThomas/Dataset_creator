@@ -116,16 +116,17 @@ class ConfigDialog(QDialog):
         ui_layout = QFormLayout()
         
         # Langue
-        self.language_combo = QComboBox()
-        for code, name in self.config_controller.get_supported_languages().items():
-            self.language_combo.addItem(name, code)
-        ui_layout.addRow("Langue:", self.language_combo)
+
+        #self.language_combo = QComboBox()
+        #for code, name in self.config_controller.get_supported_languages().items():
+        #    self.language_combo.addItem(name, code)
+        #ui_layout.addRow("Langue:", self.language_combo)
         
         # Thème
-        self.theme_combo = QComboBox()
-        for code, name in self.config_controller.get_supported_themes().items():
-            self.theme_combo.addItem(name, code)
-        ui_layout.addRow("Thème:", self.theme_combo)
+        #self.theme_combo = QComboBox()
+        #for code, name in self.config_controller.get_supported_themes().items():
+        #    self.theme_combo.addItem(name, code)
+        #ui_layout.addRow("Thème:", self.theme_combo)
 
         # Dimensions de la fenêtre
         self.window_width = QSpinBox()
@@ -249,8 +250,8 @@ class ConfigDialog(QDialog):
     def _load_current_values(self):
         """Charge les valeurs actuelles dans l'interface."""
         # Paramètres généraux
-        self._set_combo_by_data(self.language_combo, self.config.ui.language)
-        self._set_combo_by_data(self.theme_combo, self.config.ui.theme)
+        #self._set_combo_by_data(self.language_combo, self.config.ui.language)
+        #self._set_combo_by_data(self.theme_combo, self.config.ui.theme)
         self.window_width.setValue(self.config.ui.window_width)
         self.window_height.setValue(self.config.ui.window_height)
         self.debug_mode.setChecked(self.config.debug_mode)
@@ -286,8 +287,8 @@ class ConfigDialog(QDialog):
         """Sauvegarde les valeurs originales pour détecter les changements."""
         self.original_values = {
             "ui": {
-                "language": self.language_combo.currentData(),
-                "theme": self.theme_combo.currentData(),
+                #"language": self.language_combo.currentData(),
+                #"theme": self.theme_combo.currentData(),
                 "window_width": self.window_width.value(),
                 "window_height": self.window_height.value()
             },
@@ -311,8 +312,8 @@ class ConfigDialog(QDialog):
             # Collecter les mises à jour
             updates = {
                 "ui": {
-                    "language": self.language_combo.currentData(),
-                    "theme": self.theme_combo.currentData(),
+                    #"language": self.language_combo.currentData(),
+                    #"theme": self.theme_combo.currentData(),
                     "window_width": self.window_width.value(),
                     "window_height": self.window_height.value()
                 },
@@ -526,8 +527,8 @@ class ConfigDialog(QDialog):
         """
         current_values = {
             "ui": {
-                "language": self.language_combo.currentData(),
-                "theme": self.theme_combo.currentData(),
+                #"language": self.language_combo.currentData(),
+                #"theme": self.theme_combo.currentData(),
                 "window_width": self.window_width.value(),
                 "window_height": self.window_height.value()
             },
