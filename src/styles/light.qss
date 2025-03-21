@@ -1,128 +1,108 @@
+              /* Thème clair pour YOLO Dataset Manager */
 
-            /* Thème clair pour YOLO Dataset Manager */
-            
-            QMainWindow, QDialog {
-                background-color: #f0f0f0;
-                color: #303030;
-            }
-            
-            QMenuBar {
-                background-color: #f0f0f0;
-                border-bottom: 1px solid #d0d0d0;
-            }
-            
-            QMenuBar::item {
-                background-color: transparent;
-                padding: 5px 10px;
-                border-radius: 4px;
-            }
-            
-            QMenuBar::item:selected {
-                background-color: #e0e0e0;
-            }
-            
-            QMenu {
-                background-color: #ffffff;
-                border: 1px solid #d0d0d0;
-            }
-            
-            QMenu::item {
-                padding: 5px 30px 5px 20px;
-                border-radius: 4px;
-            }
-            
-            QMenu::item:selected {
-                background-color: #e0e0e0;
-            }
-            
-            QPushButton {
-                background-color: #f8f8f8;
-                border: 1px solid #c0c0c0;
-                padding: 5px 10px;
-                border-radius: 4px;
-            }
-            
-            QPushButton:hover {
-                background-color: #e8e8e8;
-            }
-            
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            
-            QGroupBox {
-                border: 1px solid #c0c0c0;
-                border-radius: 4px;
-                margin-top: 1em;
-                padding-top: 10px;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top center;
-                padding: 0 5px;
-            }
-            
-            QListWidget, QTreeWidget, QTableWidget {
-                background-color: #ffffff;
-                border: 1px solid #c0c0c0;
-                border-radius: 4px;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #c0c0c0;
-                border-radius: 4px;
-                background-color: #ffffff;
-            }
-            
-            QTabBar::tab {
-                background-color: #e0e0e0;
-                padding: 5px 10px;
-                border: 1px solid #c0c0c0;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background-color: #ffffff;
-                border-bottom: none;
-            }
-            
-            QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-                background-color: #ffffff;
-                border: 1px solid #c0c0c0;
-                border-radius: 4px;
-                padding: 3px;
-            }
-            
-            QProgressBar {
-                border: 1px solid #c0c0c0;
-                border-radius: 4px;
-                background-color: #ffffff;
-                text-align: center;
-            }
-            
-            QProgressBar::chunk {
-                background-color: #4CAF50;
-                width: 10px;
-                margin: 0px;
-            }
-            
-            QScrollBar:vertical {
-                border: none;
-                background-color: #f0f0f0;
-                width: 12px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                min-height: 20px;
-                border-radius: 6px;
-            }
-            
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
+              * {
+                  background-color: #ffffff; /* Couleur de fond uniforme pour tous les éléments */
+                  color: #202020; /* Couleur de texte uniforme pour tous les éléments */
+              }
+
+              QMenuBar {
+                  border-bottom: 1px solid #d0d0d0;
+              }
+
+              QMenuBar::item {
+                  background-color: transparent;
+                  padding: 5px 10px;
+                  border-radius: 4px;
+              }
+
+              QMenuBar::item:selected {
+                  background-color: #e0e0e0;
+              }
+
+              QMenu {
+                  border: 1px solid #d0d0d0;
+              }
+
+              QMenu::item {
+                  padding: 5px 30px 5px 20px;
+                  border-radius: 4px;
+              }
+
+              QMenu::item:selected {
+                  background-color: #e0e0e0;
+              }
+
+              QPushButton {
+                  border: 1px solid #c0c0c0;
+                  padding: 5px 10px;
+                  border-radius: 4px;
+              }
+
+              QPushButton:hover {
+                  background-color: #e8e8e8;
+              }
+
+              QPushButton:pressed {
+                  background-color: #d0d0d0;
+              }
+
+              QGroupBox {
+                  border: 1px solid #c0c0c0;
+                  border-radius: 4px;
+                  margin-top: 1em;
+                  padding-top: 10px;
+              }
+
+              QGroupBox::title {
+                  subcontrol-origin: margin;
+                  subcontrol-position: top center;
+                  padding: 0 5px;
+              }
+
+              QTabBar::tab {
+                  background-color: #e0e0e0;
+                  padding: 5px 10px;
+                  border: 1px solid #c0c0c0;
+                  border-bottom: none;
+                  border-top-left-radius: 4px;
+                  border-top-right-radius: 4px;
+              }
+
+              QTabBar::tab:selected {
+                  background-color: #ffffff;
+                  border-bottom: none;
+              }
+
+              QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+                  border: 1px solid #c0c0c0;
+                  border-radius: 4px;
+                  padding: 3px;
+              }
+
+              QProgressBar {
+                  border: 1px solid #c0c0c0;
+                  border-radius: 4px;
+                  text-align: center;
+              }
+
+              QProgressBar::chunk {
+                  background-color: #4CAF50;
+                  width: 10px;
+                  margin: 0px;
+              }
+
+              QScrollBar:vertical {
+                  border: none;
+                  width: 12px;
+                  margin: 0px;
+              }
+
+              QScrollBar::handle:vertical {
+                  background-color: #c0c0c0;
+                  min-height: 20px;
+                  border-radius: 6px;
+              }
+
+              QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                  height: 0px;
+              }

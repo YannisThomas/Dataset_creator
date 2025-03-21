@@ -6,5 +6,9 @@
   {
     "type": "sqlite",
     "path": "c:\\Users\\thebr\\Desktop\\projets\\lourd_mvc\\lourd_mvc\\client_lourd\\data\\yolo_datasets.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "c:\\Users\\thebr\\Documents\\projet\\Dataset_creator\\client_lourd\\data\\yolo_datasets.db"
   }
 ]

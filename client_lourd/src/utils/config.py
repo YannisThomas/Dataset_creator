@@ -351,16 +351,29 @@ class ConfigManager:
             # Convertir la configuration en dictionnaire
             config_dict = self.config.model_dump()
             
+            # Convertir les chemins en chaînes
+            def convert_paths(obj):
+                if isinstance(obj, dict):
+                    return {k: convert_paths(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_paths(v) for v in obj]
+                elif isinstance(obj, Path):
+                    return str(obj)
+                else:
+                    return obj
+            
+            converted_config = convert_paths(config_dict)
+            
             # Sauvegarder au format JSON
             with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(config_dict, f, indent=2, ensure_ascii=False)
+                json.dump(converted_config, f, indent=2, ensure_ascii=False)
             
             self.logger.info(f"Configuration sauvegardée : {config_path}")
         
         except Exception as e:
             self.logger.error(f"Échec de la sauvegarde de la configuration : {str(e)}")
             raise ConfigurationError(f"Impossible de sauvegarder la configuration : {str(e)}")
-    
+        
     def update_config(self, updates: Dict[str, Any]) -> None:
         """
         Met à jour la configuration actuelle
