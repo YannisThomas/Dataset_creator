@@ -19,10 +19,12 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 from typing import Dict, Optional, Any
 
+from src.utils.i18n import get_translation_manager, tr
 from src.views.dialogs.base_dialog import BaseDialog
 from src.utils.config import ConfigManager
 from src.controllers.config_controller import ConfigController
 from src.controllers.controller_manager import ControllerManager
+from src.utils.theme_manager import get_theme_manager
 
 class PreferencesDialog(BaseDialog):
     """
@@ -49,7 +51,7 @@ class PreferencesDialog(BaseDialog):
         super().__init__(
             parent=parent,
             controller_manager=controller_manager,
-            title="Préférences"
+            title=tr("dialog.preferences.title")
         )
         
         # Utiliser le gestionnaire de configuration fourni ou celui du controller_manager
@@ -69,6 +71,9 @@ class PreferencesDialog(BaseDialog):
         # Récupérer la configuration actuelle
         self.config = self.config_manager.get_config()
         
+        # Gestionnaire de thèmes
+        self.theme_manager = get_theme_manager()
+        
         # Garder une copie des valeurs originales
         self.original_values = {}
         
@@ -86,23 +91,23 @@ class PreferencesDialog(BaseDialog):
         
         # Onglet Interface
         ui_tab = self._create_ui_tab()
-        self.tab_widget.addTab(ui_tab, "Interface")
+        self.tab_widget.addTab(ui_tab, tr("dialog.preferences.interface_tab"))
         
         # Onglet Données
         data_tab = self._create_data_tab()
-        self.tab_widget.addTab(data_tab, "Données")
+        self.tab_widget.addTab(data_tab, tr("dialog.preferences.data_tab"))
         
         # Onglet Système
         system_tab = self._create_system_tab()
-        self.tab_widget.addTab(system_tab, "Système")
+        self.tab_widget.addTab(system_tab, tr("dialog.preferences.system_tab"))
         
         layout.addWidget(self.tab_widget)
         
         # Boutons
         buttons_layout = QHBoxLayout()
-        save_button = QPushButton("Enregistrer")
+        save_button = QPushButton(tr("button.save"))
         save_button.clicked.connect(self._save_preferences)
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(tr("button.cancel"))
         cancel_button.clicked.connect(self.reject)
         
         buttons_layout.addStretch()
@@ -117,7 +122,7 @@ class PreferencesDialog(BaseDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Interface
-        ui_group = QGroupBox("Interface utilisateur")
+        ui_group = QGroupBox(tr("dialog.preferences.ui_group"))
         ui_layout = QFormLayout()
         
         # Langue
@@ -130,7 +135,9 @@ class PreferencesDialog(BaseDialog):
         self.theme_combo = QComboBox()
         for code, name in self.config_controller.get_supported_themes().items():
             self.theme_combo.addItem(name, code)
-        ui_layout.addRow("Thème:", self.theme_combo)
+        # Connecter le signal pour changement de thème en temps réel
+        self.theme_combo.currentTextChanged.connect(self._on_theme_preview)
+        ui_layout.addRow(tr("dialog.preferences.theme_label"), self.theme_combo)
         
         # Nombre de datasets récents
         self.recent_datasets_spin = QSpinBox()
@@ -141,7 +148,7 @@ class PreferencesDialog(BaseDialog):
         layout.addWidget(ui_group)
         
         # Groupe Dimensions
-        dimensions_group = QGroupBox("Dimensions de la fenêtre")
+        dimensions_group = QGroupBox(tr("dialog.preferences.dimensions_group"))
         dimensions_layout = QFormLayout()
         
         # Largeur
@@ -166,12 +173,12 @@ class PreferencesDialog(BaseDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Stockage
-        storage_group = QGroupBox("Stockage")
+        storage_group = QGroupBox(tr("dialog.preferences.storage_group"))
         storage_layout = QFormLayout()
         
         # Répertoire de base
         self.base_dir_edit = QLineEdit()
-        base_dir_browse = QPushButton("Parcourir...")
+        base_dir_browse = QPushButton(tr("button.browse"))
         base_dir_browse.clicked.connect(lambda: self._browse_directory(self.base_dir_edit))
         
         base_dir_layout = QHBoxLayout()
@@ -189,7 +196,7 @@ class PreferencesDialog(BaseDialog):
         layout.addWidget(storage_group)
         
         # Groupe formats
-        formats_group = QGroupBox("Formats supportés")
+        formats_group = QGroupBox(tr("dialog.preferences.formats_group"))
         formats_layout = QVBoxLayout()
         
         self.formats_checkboxes = []
@@ -202,7 +209,7 @@ class PreferencesDialog(BaseDialog):
         layout.addWidget(formats_group)
         
         # Bouton pour nettoyer le cache
-        clear_cache_button = QPushButton("Nettoyer le cache")
+        clear_cache_button = QPushButton(tr("dialog.preferences.clear_cache"))
         clear_cache_button.clicked.connect(self._clear_cache)
         layout.addWidget(clear_cache_button)
         
@@ -215,11 +222,11 @@ class PreferencesDialog(BaseDialog):
         layout = QVBoxLayout(tab)
         
         # Mode débogage
-        self.debug_check = QCheckBox("Activer le mode débogage")
+        self.debug_check = QCheckBox(tr("dialog.preferences.debug_mode"))
         layout.addWidget(self.debug_check)
         
         # Groupe API
-        api_group = QGroupBox("Paramètres API")
+        api_group = QGroupBox(tr("dialog.preferences.api_group"))
         api_layout = QFormLayout()
         
         # URL API
@@ -236,7 +243,7 @@ class PreferencesDialog(BaseDialog):
         layout.addWidget(api_group)
         
         # Test de connexion
-        test_button = QPushButton("Tester la connexion API")
+        test_button = QPushButton(tr("dialog.preferences.test_api"))
         test_button.clicked.connect(self._test_api_connection)
         layout.addWidget(test_button)
         
@@ -451,6 +458,15 @@ class PreferencesDialog(BaseDialog):
                 "Erreur",
                 f"Échec de la sauvegarde des préférences:\n{str(e)}"
             )
+    
+    def _on_theme_preview(self):
+        """Applique le thème sélectionné en temps réel pour prévisualisation."""
+        try:
+            theme_code = self.theme_combo.currentData()
+            if theme_code:
+                self.theme_manager.set_theme(theme_code)
+        except Exception as e:
+            self.logger.warning(f"Erreur lors de la prévisualisation du thème: {e}")
     
     def has_changes(self) -> bool:
         """

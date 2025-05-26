@@ -29,6 +29,7 @@ import requests
 from src.views.dialogs.base_dialog import BaseDialog
 from src.models import Dataset, Image, Annotation, BoundingBox
 from src.models.enums import ImageSource, AnnotationType
+from src.utils.i18n import tr
 from typing import Dict, Optional, List, Union
 
 class DownloadThread(QThread):
@@ -87,7 +88,7 @@ class MapillaryImportDialog(BaseDialog):
         super().__init__(
             parent=parent,
             controller_manager=controller_manager,
-            title="Import depuis Mapillary"
+            title=tr("dialog.mapillary.title")
         )
         
         # Récupérer ou créer les contrôleurs
@@ -109,12 +110,13 @@ class MapillaryImportDialog(BaseDialog):
         # Ajouter un attribut pour stocker les threads de téléchargement
         self.download_threads = []
         
+        # Redimensionner la fenêtre
+        self.resize(700, 600)
+        
+    def _init_dialog(self):
+        """Initialisation personnalisée avant la création de l'UI."""
         # Charger les configurations
         self._load_config()
-        
-        # Initialiser l'interface
-        self.resize(700, 600)
-        self._create_ui()
         
     def _load_config(self):
         """Charge les fichiers de configuration."""
@@ -122,29 +124,26 @@ class MapillaryImportDialog(BaseDialog):
         self.mapillary_config = {"api": {}, "class_mapping": {}, "import_settings": {}}
         
         try:
-            # Chemin vers le dossier de configuration - CORRIGÉ
-            config_dir = Path("src/config")  # Chemin correct
+            # Chemin vers le dossier de configuration - utilisation d'un chemin absolu
+            current_file = Path(__file__).resolve()
+            config_dir = current_file.parent.parent.parent / "config"
             
             # Charger les zones géographiques françaises
             geo_path = config_dir / "french_geo_zones.json"
             if geo_path.exists():
                 with open(geo_path, 'r', encoding='utf-8') as f:
                     self.geo_data = json.load(f)
+                    self.logger.info(f"Zones géographiques chargées depuis: {geo_path}")
             else:
-                # Essayer un chemin alternatif si le premier échoue
-                alt_path = Path("client_lourd/src/config/french_geo_zones.json")
-                if alt_path.exists():
-                    with open(alt_path, 'r', encoding='utf-8') as f:
-                        self.geo_data = json.load(f)
-                else:
-                    self.logger.warning(f"Fichier de zones géographiques non trouvé: {geo_path} ni {alt_path}")
-                    self.geo_data = {"cities": {}, "roads": {}, "regions": {}, "landmarks": {}}
+                self.logger.warning(f"Fichier de zones géographiques non trouvé: {geo_path}")
+                self.geo_data = {"cities": {}, "roads": {}, "regions": {}, "landmarks": {}}
                     
             # Optionally load Mapillary configuration
             mapillary_config_path = config_dir / "mapillary_config.json"
             if mapillary_config_path.exists():
                 with open(mapillary_config_path, 'r', encoding='utf-8') as f:
                     self.mapillary_config = json.load(f)
+                    self.logger.info(f"Configuration Mapillary chargée depuis: {mapillary_config_path}")
                     
         except Exception as e:
             self.logger.error(f"Erreur lors du chargement des configurations: {str(e)}")
@@ -156,7 +155,7 @@ class MapillaryImportDialog(BaseDialog):
         layout = QVBoxLayout(self)
         
         # Groupe Sélection de région
-        region_group = QGroupBox("Sélection de région en France")
+        region_group = QGroupBox(tr("dialog.mapillary.region"))
         region_layout = QVBoxLayout()
         
         # Onglets pour différentes méthodes de sélection
@@ -167,7 +166,7 @@ class MapillaryImportDialog(BaseDialog):
         cities_layout = QVBoxLayout(cities_tab)
         
         # Liste des villes françaises
-        cities_label = QLabel("Sélectionnez une ville:")
+        cities_label = QLabel(tr("dialog.mapillary.select_city"))
         cities_layout.addWidget(cities_label)
         
         self.cities_list = QListWidget()
@@ -181,7 +180,7 @@ class MapillaryImportDialog(BaseDialog):
         
         # Rayon autour de la ville
         radius_layout = QHBoxLayout()
-        radius_label = QLabel("Rayon (km):")
+        radius_label = QLabel(tr("dialog.mapillary.radius"))
         self.radius_spin = QSpinBox()
         self.radius_spin.setRange(1, 30)
         # Valeur par défaut depuis la config ou 5km par défaut
@@ -191,13 +190,13 @@ class MapillaryImportDialog(BaseDialog):
         radius_layout.addWidget(self.radius_spin)
         cities_layout.addLayout(radius_layout)
         
-        region_tabs.addTab(cities_tab, "Villes")
+        region_tabs.addTab(cities_tab, tr("dialog.mapillary.cities"))
         
         # Onglet Axes routiers
         roads_tab = QWidget()
         roads_layout = QVBoxLayout(roads_tab)
         
-        roads_label = QLabel("Sélectionnez un axe routier:")
+        roads_label = QLabel(tr("dialog.mapillary.select_road"))
         roads_layout.addWidget(roads_label)
         
         self.roads_list = QListWidget()
@@ -211,7 +210,7 @@ class MapillaryImportDialog(BaseDialog):
         
         # Distance le long de la route
         distance_layout = QHBoxLayout()
-        distance_label = QLabel("Portion (km depuis le début):")
+        distance_label = QLabel(tr("dialog.mapillary.portion"))
         self.distance_spin = QSpinBox()
         self.distance_spin.setRange(5, 100)
         self.distance_spin.setValue(20)
@@ -221,7 +220,7 @@ class MapillaryImportDialog(BaseDialog):
         
         # Largeur du corridor
         corridor_layout = QHBoxLayout()
-        corridor_label = QLabel("Largeur du corridor (m):")
+        corridor_label = QLabel(tr("dialog.mapillary.corridor_width"))
         self.corridor_spin = QSpinBox()
         self.corridor_spin.setRange(100, 1000)
         # Valeur par défaut depuis la config ou 200m par défaut
@@ -232,13 +231,13 @@ class MapillaryImportDialog(BaseDialog):
         corridor_layout.addWidget(self.corridor_spin)
         roads_layout.addLayout(corridor_layout)
         
-        region_tabs.addTab(roads_tab, "Axes routiers")
+        region_tabs.addTab(roads_tab, tr("dialog.mapillary.roads"))
         
         # Onglet Points d'intérêt
         landmarks_tab = QWidget()
         landmarks_layout = QVBoxLayout(landmarks_tab)
         
-        landmarks_label = QLabel("Sélectionnez un point d'intérêt:")
+        landmarks_label = QLabel(tr("dialog.mapillary.select_landmark"))
         landmarks_layout.addWidget(landmarks_label)
         
         self.landmarks_list = QListWidget()
@@ -252,7 +251,7 @@ class MapillaryImportDialog(BaseDialog):
         
         # Rayon autour du point d'intérêt
         lm_radius_layout = QHBoxLayout()
-        lm_radius_label = QLabel("Rayon (km):")
+        lm_radius_label = QLabel(tr("dialog.mapillary.landmark_radius"))
         self.lm_radius_spin = QSpinBox()
         self.lm_radius_spin.setRange(1, 10)
         self.lm_radius_spin.setValue(2)
@@ -260,7 +259,7 @@ class MapillaryImportDialog(BaseDialog):
         lm_radius_layout.addWidget(self.lm_radius_spin)
         landmarks_layout.addLayout(lm_radius_layout)
         
-        region_tabs.addTab(landmarks_tab, "Points d'intérêt")
+        region_tabs.addTab(landmarks_tab, tr("dialog.mapillary.landmarks"))
         
         # Onglet Coordonnées manuelles (pour les utilisateurs avancés)
         manual_tab = QWidget()
@@ -287,10 +286,10 @@ class MapillaryImportDialog(BaseDialog):
         self.max_lon_spin.setDecimals(6)
         self.max_lon_spin.setValue(2.4)
         
-        manual_layout.addRow("Latitude min:", self.min_lat_spin)
-        manual_layout.addRow("Latitude max:", self.max_lat_spin)
-        manual_layout.addRow("Longitude min:", self.min_lon_spin)
-        manual_layout.addRow("Longitude max:", self.max_lon_spin)
+        manual_layout.addRow(tr("dialog.mapillary.min_lat"), self.min_lat_spin)
+        manual_layout.addRow(tr("dialog.mapillary.max_lat"), self.max_lat_spin)
+        manual_layout.addRow(tr("dialog.mapillary.min_lon"), self.min_lon_spin)
+        manual_layout.addRow(tr("dialog.mapillary.max_lon"), self.max_lon_spin)
         
         region_tabs.addTab(manual_tab, "Manuel")
         
@@ -299,7 +298,7 @@ class MapillaryImportDialog(BaseDialog):
         layout.addWidget(region_group)
         
         # Groupe Options
-        options_group = QGroupBox("Options d'import")
+        options_group = QGroupBox(tr("dialog.mapillary.import_options"))
         options_layout = QFormLayout()
         
         self.max_images_spin = QSpinBox()
@@ -308,7 +307,7 @@ class MapillaryImportDialog(BaseDialog):
         default_max = self.mapillary_config.get("import_settings", {}).get("max_images_per_import", 100)
         self.max_images_spin.setValue(default_max)
         
-        options_layout.addRow("Nombre max d'images:", self.max_images_spin)
+        options_layout.addRow(tr("dialog.mapillary.max_images"), self.max_images_spin)
         
         options_group.setLayout(options_layout)
         layout.addWidget(options_group)
@@ -317,12 +316,12 @@ class MapillaryImportDialog(BaseDialog):
         self.region_tabs = region_tabs
         
         # Bouton de prévisualisation
-        preview_button = QPushButton("Prévisualiser")
+        preview_button = QPushButton(tr("dialog.mapillary.preview"))
         preview_button.clicked.connect(self._on_preview)
         layout.addWidget(preview_button)
         
         # Liste de prévisualisation
-        preview_label = QLabel("Images disponibles:")
+        preview_label = QLabel(tr("dialog.mapillary.available_images"))
         layout.addWidget(preview_label)
         
         self.preview_list = QListWidget()
@@ -338,11 +337,11 @@ class MapillaryImportDialog(BaseDialog):
         # Boutons de validation
         buttons_layout = QHBoxLayout()
         
-        self.import_button = QPushButton("Importer")
+        self.import_button = QPushButton(tr("dialog.mapillary.import"))
         self.import_button.clicked.connect(self._on_import)
         self.import_button.setEnabled(False)  # Désactivé jusqu'à la prévisualisation
         
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(tr("button.cancel"))
         cancel_button.clicked.connect(self.reject)
         
         buttons_layout.addStretch()
@@ -365,7 +364,7 @@ class MapillaryImportDialog(BaseDialog):
             # Récupérer la ville sélectionnée
             items = self.cities_list.selectedItems()
             if not items:
-                raise ValueError("Veuillez sélectionner une ville")
+                raise ValueError(tr("dialog.mapillary.select_city_error"))
             
             city_name = items[0].text()
             city_data = self.geo_data["cities"][city_name]
@@ -666,14 +665,14 @@ class MapillaryImportDialog(BaseDialog):
                 
                 # Utiliser les classes de panneaux depuis la configuration
                 classes = {}
-                for class_id, sign_id in self.mapillary_config.get("class_mapping", {}).items():
+                for sign_id, class_id in self.mapillary_config.get("class_mapping", {}).items():
                     # Extraire le nom lisible du panneau (ex: "regulatory--stop--g1" -> "Stop")
-                    sign_parts = sign_id.split("--")
+                    sign_parts = str(sign_id).split("--")
                     if len(sign_parts) > 1:
                         sign_name = sign_parts[1].replace("-", " ").title()
                         classes[int(class_id)] = sign_name
                     else:
-                        classes[int(class_id)] = sign_id
+                        classes[int(class_id)] = str(sign_id)
                 
                 try:
                     # Importer directement depuis Mapillary avec création du dataset

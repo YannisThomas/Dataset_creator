@@ -45,6 +45,12 @@ class Annotation(BaseModel):
     type: AnnotationType = AnnotationType.BBOX
     metadata: Dict = Field(default_factory=dict)
     
+    @field_validator('metadata', mode='before')
+    @classmethod
+    def validate_metadata(cls, v):
+        """Convertit None en dict vide"""
+        return v if v is not None else {}
+    
     @field_validator('confidence')
     @classmethod
     def validate_confidence(cls, v):

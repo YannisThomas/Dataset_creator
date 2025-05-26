@@ -19,6 +19,7 @@ from src.views.dialogs.base_dialog import BaseDialog
 from src.controllers.dataset_controller import DatasetController
 from src.controllers.controller_manager import ControllerManager
 from src.core.exceptions import DatasetError
+from src.utils.i18n import tr
 
 class NewDatasetDialog(BaseDialog):
     """
@@ -43,7 +44,7 @@ class NewDatasetDialog(BaseDialog):
         super().__init__(
             parent=parent,
             controller_manager=controller_manager,
-            title="Créer un nouveau Dataset"
+            title=tr("dialog.new_dataset.title")
         )
         
         # Utiliser le contrôleur fourni ou celui du gestionnaire
@@ -67,7 +68,7 @@ class NewDatasetDialog(BaseDialog):
         
         # Nom du dataset
         name_layout = QHBoxLayout()
-        name_label = QLabel("Nom du Dataset:")
+        name_label = QLabel(tr("dialog.new_dataset.name"))
         self.name_edit = QLineEdit()
         name_layout.addWidget(name_label)
         name_layout.addWidget(self.name_edit)
@@ -75,7 +76,7 @@ class NewDatasetDialog(BaseDialog):
         
         # Version
         version_layout = QHBoxLayout()
-        version_label = QLabel("Version:")
+        version_label = QLabel(tr("dialog.new_dataset.version"))
         self.version_edit = QLineEdit()
         self.version_edit.setText("1.0.0")  # Version par défaut
         version_layout.addWidget(version_label)
@@ -84,9 +85,9 @@ class NewDatasetDialog(BaseDialog):
         
         # Répertoire de sortie
         path_layout = QHBoxLayout()
-        path_label = QLabel("Répertoire de sortie:")
+        path_label = QLabel(tr("dialog.new_dataset.path"))
         self.path_edit = QLineEdit()
-        browse_button = QPushButton("Parcourir...")
+        browse_button = QPushButton(tr("button.browse"))
         browse_button.clicked.connect(self._browse_directory)
         path_layout.addWidget(path_label)
         path_layout.addWidget(self.path_edit)
@@ -94,20 +95,20 @@ class NewDatasetDialog(BaseDialog):
         layout.addLayout(path_layout)
         
         # Tableau des classes
-        layout.addWidget(QLabel("Classes:"))
+        layout.addWidget(QLabel(tr("dialog.new_dataset.classes")))
         
         classes_layout = QHBoxLayout()
         
         # Table des classes
         self.classes_table = QTableWidget(0, 2)
-        self.classes_table.setHorizontalHeaderLabels(["ID", "Nom"])
+        self.classes_table.setHorizontalHeaderLabels(["ID", tr("dialog.new_dataset.name")])
         classes_layout.addWidget(self.classes_table)
         
         # Boutons pour gérer les classes
         class_buttons_layout = QVBoxLayout()
-        add_class_button = QPushButton("Ajouter Classe")
+        add_class_button = QPushButton(tr("dialog.new_dataset.add_class"))
         add_class_button.clicked.connect(self._add_class)
-        remove_class_button = QPushButton("Supprimer Classe")
+        remove_class_button = QPushButton(tr("dialog.new_dataset.remove_class"))
         remove_class_button.clicked.connect(self._remove_class)
         class_buttons_layout.addWidget(add_class_button)
         class_buttons_layout.addWidget(remove_class_button)
@@ -118,9 +119,9 @@ class NewDatasetDialog(BaseDialog):
         
         # Boutons de validation
         buttons_layout = QHBoxLayout()
-        create_button = QPushButton("Créer")
+        create_button = QPushButton(tr("dialog.new_dataset.create"))
         create_button.clicked.connect(self._create_dataset)
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(tr("button.cancel"))
         cancel_button.clicked.connect(self.reject)
         buttons_layout.addStretch()
         buttons_layout.addWidget(create_button)

@@ -1,6 +1,6 @@
 # src/services/dataset_service.py
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 from src.models import Dataset, Image
@@ -100,6 +100,49 @@ class DatasetService:
         except Exception as e:
             self.logger.error(f"Échec de mise à jour du dataset : {str(e)}")
             return False
+    
+    def save_dataset(self, dataset: Dataset) -> bool:
+        """
+        Sauvegarde un dataset dans la base de données.
+        
+        Args:
+            dataset: Dataset à sauvegarder
+            
+        Returns:
+            True si la sauvegarde a réussi
+        """
+        try:
+            # Sauvegarder via le gestionnaire de base de données
+            result = self.db_manager.save_dataset(dataset)
+            
+            if result:
+                self.logger.info(f"Dataset sauvegardé avec succès : {dataset.name}")
+            else:
+                self.logger.error(f"Échec de la sauvegarde du dataset : {dataset.name}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Échec de sauvegarde du dataset : {str(e)}")
+            return False
+    
+    def list_datasets(self) -> List[Dict[str, Any]]:
+        """
+        Liste tous les datasets disponibles avec leurs statistiques
+        
+        Returns:
+            Liste des informations des datasets
+        """
+        try:
+            # Utiliser le gestionnaire de base de données pour lister les datasets
+            datasets = self.db_manager.list_datasets()
+            
+            self.logger.debug(f"Récupération de {len(datasets)} datasets")
+            return datasets
+        
+        except Exception as e:
+            self.logger.error(f"Échec de récupération des datasets : {str(e)}")
+            return []
     
     def delete_dataset(self, name: str, delete_files: bool = False) -> bool:
         """

@@ -26,6 +26,8 @@ from src.controllers.controller_manager import ControllerManager
 from src.views.components.image_viewer import ImageViewer
 from src.views.components.annotation_editor import AnnotationEditor
 from src.views.dialogs.metadata_dialog import MetadataDetailsDialog
+from src.views.dialogs.export_dialog import ExportDialog
+from src.utils.i18n import get_translation_manager, tr
 
 class DatasetView(BaseView):
     """
@@ -72,18 +74,22 @@ class DatasetView(BaseView):
         # Barre d'outils principale
         toolbar = QHBoxLayout()
         
-        add_images_btn = QPushButton("Ajouter des images")
-        add_images_btn.clicked.connect(self._on_add_images)
+        self.add_images_btn = QPushButton(tr("view.dataset.add_images"))
+        self.add_images_btn.clicked.connect(self._on_add_images)
         
-        export_btn = QPushButton("Exporter")
-        export_btn.clicked.connect(self._on_export)
+        self.export_btn = QPushButton(tr("view.dataset.export"))
+        self.export_btn.clicked.connect(self._on_export)
         
-        validate_btn = QPushButton("Valider")
-        validate_btn.clicked.connect(self._on_validate)
+        self.validate_btn = QPushButton(tr("view.dataset.validate"))
+        self.validate_btn.clicked.connect(self._on_validate)
         
-        toolbar.addWidget(add_images_btn)
-        toolbar.addWidget(export_btn)
-        toolbar.addWidget(validate_btn)
+        self.save_btn = QPushButton(tr("view.dataset.save"))
+        self.save_btn.clicked.connect(self._on_save)
+        
+        toolbar.addWidget(self.add_images_btn)
+        toolbar.addWidget(self.export_btn)
+        toolbar.addWidget(self.validate_btn)
+        toolbar.addWidget(self.save_btn)
         toolbar.addStretch()
         
         layout.addLayout(toolbar)
@@ -142,12 +148,12 @@ class DatasetView(BaseView):
         panel_layout.addWidget(self.image_list)
         
         # Statistiques des images
-        stats_group = QGroupBox("Statistiques")
+        stats_group = QGroupBox(tr("view.dataset.statistics"))
         stats_layout = QVBoxLayout(stats_group)
         
-        self.total_images_label = QLabel("Total Images: 0")
-        self.total_annotations_label = QLabel("Total Annotations: 0")
-        self.classes_label = QLabel("Classes: 0")
+        self.total_images_label = QLabel(tr("view.dataset.total_images", "0"))
+        self.total_annotations_label = QLabel(tr("view.dataset.total_annotations", "0"))
+        self.classes_label = QLabel(tr("view.dataset.classes", "0"))
         
         stats_layout.addWidget(self.total_images_label)
         stats_layout.addWidget(self.total_annotations_label)
@@ -164,7 +170,7 @@ class DatasetView(BaseView):
         Returns:
             Widget du panneau central
         """
-        panel = QGroupBox("Visualisation")
+        panel = QGroupBox(tr("view.dataset.visualization"))
         panel_layout = QVBoxLayout(panel)
         
         # Viewer d'image
@@ -178,13 +184,13 @@ class DatasetView(BaseView):
         # Barre d'outils d'édition
         edit_toolbar = QHBoxLayout()
         
-        view_mode_btn = QPushButton("Visualiser")
+        view_mode_btn = QPushButton(tr("view.dataset.view_mode"))
         view_mode_btn.clicked.connect(self.image_viewer.view_mode)
         
-        create_mode_btn = QPushButton("Créer")
+        create_mode_btn = QPushButton(tr("view.dataset.create_mode"))
         create_mode_btn.clicked.connect(self.image_viewer.create_annotation_mode)
         
-        edit_mode_btn = QPushButton("Éditer")
+        edit_mode_btn = QPushButton(tr("view.dataset.edit_mode"))
         edit_mode_btn.clicked.connect(self.image_viewer.edit_annotation_mode)
         
         edit_toolbar.addWidget(view_mode_btn)
@@ -202,11 +208,11 @@ class DatasetView(BaseView):
         Returns:
             Widget du panneau droit
         """
-        panel = QGroupBox("Détails")
+        panel = QGroupBox(tr("view.dataset.details"))
         panel_layout = QVBoxLayout(panel)
         
         # Métadonnées de l'image
-        metadata_group = QGroupBox("Métadonnées")
+        metadata_group = QGroupBox(tr("view.dataset.metadata"))
         metadata_layout = QVBoxLayout(metadata_group)
         
         self.image_info_label = QLabel()
@@ -215,7 +221,7 @@ class DatasetView(BaseView):
         metadata_layout.addWidget(self.image_info_label)
         
         # Ajouter un bouton pour voir les métadonnées complètes
-        view_metadata_btn = QPushButton("Voir métadonnées complètes")
+        view_metadata_btn = QPushButton(tr("view.dataset.view_metadata"))
         view_metadata_btn.clicked.connect(self._on_view_metadata)
         metadata_layout.addWidget(view_metadata_btn)
         
@@ -223,7 +229,7 @@ class DatasetView(BaseView):
         panel_layout.addWidget(metadata_group)
         
         # Liste des annotations
-        annotations_group = QGroupBox("Annotations")
+        annotations_group = QGroupBox(tr("view.dataset.annotations"))
         annotations_layout = QVBoxLayout(annotations_group)
         
         self.annotation_list = QListWidget()
@@ -235,10 +241,10 @@ class DatasetView(BaseView):
         # Boutons d'édition des annotations
         annotation_buttons = QHBoxLayout()
         
-        edit_annotation_btn = QPushButton("Éditer")
+        edit_annotation_btn = QPushButton(tr("view.dataset.edit_mode"))
         edit_annotation_btn.clicked.connect(self._on_edit_annotation)
         
-        delete_annotation_btn = QPushButton("Supprimer")
+        delete_annotation_btn = QPushButton(tr("view.dataset.delete_annotation"))
         delete_annotation_btn.clicked.connect(self._on_delete_annotation)
         
         annotation_buttons.addWidget(edit_annotation_btn)
@@ -367,8 +373,8 @@ class DatasetView(BaseView):
         try:
             stats = self.dataset_controller.get_dataset_statistics(self.dataset)
             if stats:
-                self.total_images_label.setText(f"Total Images: {stats['total_images']}")
-                self.total_annotations_label.setText(f"Total Annotations: {stats['total_annotations']}")
+                self.total_images_label.setText(tr("view.dataset.total_images", stats["total_images"]))
+                self.total_annotations_label.setText(tr("view.dataset.total_annotations", stats["total_annotations"]))
                 self.classes_label.setText(f"Classes: {len(self.dataset.classes)}")
         except Exception as e:
             self.logger.error(f"Erreur lors de la mise à jour des statistiques: {e}")
@@ -603,8 +609,8 @@ class DatasetView(BaseView):
             
         # Créer le menu
         menu = QMenu()
-        edit_action = menu.addAction("Éditer les annotations")
-        delete_action = menu.addAction("Supprimer l'image")
+        edit_action = menu.addAction(tr("view.dataset.edit_annotations"))
+        delete_action = menu.addAction(tr("view.dataset.delete_image"))
         
         # Exécuter le menu
         action = menu.exec(self.image_list.mapToGlobal(position))
@@ -626,8 +632,8 @@ class DatasetView(BaseView):
             
         # Créer le menu
         menu = QMenu()
-        edit_action = menu.addAction("Éditer")
-        delete_action = menu.addAction("Supprimer")
+        edit_action = menu.addAction(tr("view.dataset.edit_mode"))
+        delete_action = menu.addAction(tr("view.dataset.delete_annotation"))
         
         # Exécuter le menu
         action = menu.exec(self.annotation_list.mapToGlobal(position))
@@ -800,62 +806,41 @@ class DatasetView(BaseView):
             )
             
     def _on_export(self):
-        """Gère l'export du dataset."""
+        """Gère l'export du dataset avec le dialogue avancé."""
         if not self.dataset:
             self.show_warning("Attention", "Aucun dataset chargé")
             return
             
         try:
-            # Demander le format d'export
-            formats = {
-                "YOLO": "yolo",
-                "COCO": "coco",
-                "VOC": "voc"
-            }
-            
-            format_menu = QMenu()
-            for name, format_id in formats.items():
-                format_menu.addAction(name).setData(format_id)
-            
-            # Positionner le menu sous le bouton "Exporter"
-            action = format_menu.exec(self.sender().mapToGlobal(
-                QPoint(0, self.sender().height())
-            ))
-            
-            if not action:
-                return
-                
-            format_id = action.data()
-            
-            # Sélectionner le répertoire de sortie
-            export_dir = QFileDialog.getExistingDirectory(
-                self,
-                "Sélectionner le répertoire d'export",
-                str(Path.home()),
-                QFileDialog.Option.ShowDirsOnly
-            )
-            
-            if not export_dir:
-                return
-                
-            # Exporter le dataset via le contrôleur
-            export_path = self.export_controller.export_dataset(
+            # Ouvrir le dialogue d'export avancé
+            export_dialog = ExportDialog(
                 dataset=self.dataset,
-                export_format=format_id,
-                output_path=Path(export_dir)
+                parent=self,
+                controller_manager=self.controller_manager
             )
             
-            self.show_info(
-                "Export terminé",
-                f"Dataset exporté au format {format_id.upper()} vers:\n{export_path}"
-            )
+            # Connecter le signal de fin d'export
+            export_dialog.export_completed.connect(self._on_export_completed)
+            
+            # Afficher le dialogue
+            export_dialog.exec()
             
         except Exception as e:
-            self.logger.error(f"Échec de l'export: {str(e)}")
+            self.logger.error(f"Échec de l'ouverture du dialogue d'export: {str(e)}")
             self.show_error(
                 "Erreur",
-                f"Échec de l'export du dataset: {str(e)}"
+                f"Échec de l'ouverture du dialogue d'export: {str(e)}"
             )
+            
+    def _on_export_completed(self, export_path: str):
+        """
+        Appelé quand l'export est terminé avec succès.
+        
+        Args:
+            export_path: Chemin vers le dossier d'export
+        """
+        self.logger.info(f"Export terminé avec succès: {export_path}")
+        # Le dialogue d'export gère déjà l'affichage du message de succès
             
     def _on_validate(self):
         """Valide le dataset actuel."""
@@ -884,6 +869,31 @@ class DatasetView(BaseView):
             self.show_warning(
                 "Validation",
                 error_text
+            )
+    
+    def _on_save(self):
+        """Sauvegarde le dataset actuel."""
+        if not self.dataset:
+            self.show_warning("Attention", "Aucun dataset chargé")
+            return
+            
+        try:
+            # Sauvegarder le dataset via le contrôleur
+            self.dataset_controller.save_dataset(self.dataset)
+            
+            # Marquer comme propre
+            self.mark_as_dirty(False)
+            
+            self.show_info(
+                "Sauvegarde",
+                "Le dataset a été sauvegardé avec succès!"
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Échec de la sauvegarde du dataset: {str(e)}")
+            self.show_error(
+                "Erreur",
+                f"Échec de la sauvegarde du dataset: {str(e)}"
             )
     
     def save_changes(self) -> bool:
@@ -1053,3 +1063,28 @@ class DatasetView(BaseView):
         
         # Émettre le signal de modification du dataset
         self.dataset_modified.emit(self.dataset)
+    def _on_language_changed(self, language_code: str):
+        """Gestionnaire pour le changement de langue."""
+        # Mettre à jour les boutons et labels
+        if hasattr(self, 'add_images_btn'):
+            self.add_images_btn.setText(tr("view.dataset.add_images"))
+        if hasattr(self, 'export_btn'):
+            self.export_btn.setText(tr("view.dataset.export"))
+        if hasattr(self, 'validate_btn'):
+            self.validate_btn.setText(tr("view.dataset.validate"))
+        if hasattr(self, 'view_mode_btn'):
+            self.view_mode_btn.setText(tr("view.dataset.view_mode"))
+        if hasattr(self, 'create_mode_btn'):
+            self.create_mode_btn.setText(tr("view.dataset.create_mode"))
+        if hasattr(self, 'edit_mode_btn'):
+            self.edit_mode_btn.setText(tr("view.dataset.edit_mode"))
+        if hasattr(self, 'view_metadata_btn'):
+            self.view_metadata_btn.setText(tr("view.dataset.view_metadata"))
+        if hasattr(self, 'edit_annotation_btn'):
+            self.edit_annotation_btn.setText(tr("view.dataset.edit_annotation"))
+        if hasattr(self, 'delete_annotation_btn'):
+            self.delete_annotation_btn.setText(tr("view.dataset.delete_annotation"))
+        
+        # Mettre à jour les statistiques si elles existent
+        if hasattr(self, 'dataset') and self.dataset:
+            self._update_stats()

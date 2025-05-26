@@ -11,6 +11,25 @@ from pydantic import BaseModel, Field, field_validator
 from src.core.exceptions import ConfigurationError
 from src.utils.logger import Logger
 
+class PathEncoder(json.JSONEncoder):
+    """Encodeur JSON personnalisé pour gérer les objets Path."""
+    
+    def default(self, obj):
+        if isinstance(obj, Path):
+            return str(obj)
+        return super().default(obj)
+
+def convert_paths_to_strings(obj):
+    """Convertit récursivement tous les objets Path en chaînes de caractères."""
+    if isinstance(obj, Path):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_paths_to_strings(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_paths_to_strings(item) for item in obj]
+    else:
+        return obj
+
 class APIConfig(BaseModel):
     """Configuration pour les APIs externes"""
     mapillary_token: Optional[str] = None
@@ -59,9 +78,27 @@ class UIConfig(BaseModel):
     """Configuration pour l'interface utilisateur"""
     window_width: int = Field(1280, ge=800)
     window_height: int = Field(720, ge=600)
-    theme: str = "light"
-    language: str = "fr"
+    theme: str = "light"  # "light" ou "dark"
+    language: str = "fr"  # "fr" ou "en"
     max_recent_datasets: int = Field(5, ge=1, le=10)
+    auto_save: bool = True
+    show_tooltips: bool = True
+    
+    @field_validator('theme')
+    @classmethod
+    def validate_theme(cls, v):
+        """Valide le thème"""
+        if v not in ["light", "dark"]:
+            return "light"
+        return v
+    
+    @field_validator('language')
+    @classmethod
+    def validate_language(cls, v):
+        """Valide la langue"""
+        if v not in ["fr", "en"]:
+            return "fr"
+        return v
 
 class Configuration(BaseModel):
     """Configuration globale de l'application"""
@@ -351,6 +388,9 @@ class ConfigManager:
             # Convertir la configuration en dictionnaire
             config_dict = self.config.model_dump()
             
+            # Convertir tous les objets Path en chaînes
+            config_dict = convert_paths_to_strings(config_dict)
+            
             # Sauvegarder au format JSON
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_dict, f, indent=2, ensure_ascii=False)
@@ -360,6 +400,13 @@ class ConfigManager:
         except Exception as e:
             self.logger.error(f"Échec de la sauvegarde de la configuration : {str(e)}")
             raise ConfigurationError(f"Impossible de sauvegarder la configuration : {str(e)}")
+    
+    def save_config_default(self) -> None:
+        """
+        Sauvegarde la configuration dans le fichier par défaut (config.json).
+        """
+        default_path = Path("config.json")
+        self.save_config(default_path)
     
     def update_config(self, updates: Dict[str, Any]) -> None:
         """
@@ -408,3 +455,82 @@ class ConfigManager:
             raise ConfigurationError("Aucune configuration chargée")
         
         return self.config
+    
+    def set_language(self, language: str):
+        """
+        Change la langue de l'interface.
+        
+        Args:
+            language: Code de langue ("fr" ou "en")
+        """
+        if language not in ["fr", "en"]:
+            self.logger.warning(f"Langue non supportée: {language}")
+            return
+        
+        self.update_config({"ui": {"language": language}})
+        self.logger.info(f"Langue changée vers: {language}")
+    
+    def set_theme(self, theme: str):
+        """
+        Change le thème de l'interface.
+        
+        Args:
+            theme: Code de thème ("light" ou "dark")
+        """
+        if theme not in ["light", "dark"]:
+            self.logger.warning(f"Thème non supporté: {theme}")
+            return
+        
+        self.update_config({"ui": {"theme": theme}})
+        self.logger.info(f"Thème changé vers: {theme}")
+    
+    def get_theme(self) -> str:
+        """
+        Récupère le thème actuel.
+        
+        Returns:
+            Code du thème actuel
+        """
+        if not self.config:
+            return "light"  # Thème par défaut
+        return self.config.ui.theme
+    
+    def get_language(self) -> str:
+        """Retourne la langue actuelle."""
+        if not self.config:
+            return "fr"
+        return self.config.ui.language
+    
+    def set_theme(self, theme: str):
+        """
+        Change le thème de l'interface.
+        
+        Args:
+            theme: Nom du thème ("light" ou "dark")
+        """
+        if theme not in ["light", "dark"]:
+            self.logger.warning(f"Thème non supporté: {theme}")
+            return
+        
+        self.update_config({"ui": {"theme": theme}})
+        self.logger.info(f"Thème changé vers: {theme}")
+    
+    def get_theme(self) -> str:
+        """Retourne le thème actuel."""
+        if not self.config:
+            return "light"
+        return self.config.ui.theme
+    
+    def get_available_languages(self) -> Dict[str, str]:
+        """Retourne les langues disponibles."""
+        return {
+            "fr": "Français",
+            "en": "English"
+        }
+    
+    def get_available_themes(self) -> Dict[str, str]:
+        """Retourne les thèmes disponibles."""
+        return {
+            "light": "Clair",
+            "dark": "Sombre"
+        }

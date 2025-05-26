@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt, QRect, QPoint, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QBrush, QMouseEvent, QPaintEvent, QWheelEvent
 from typing import List, Optional, Dict, Tuple
 
+from src.utils.i18n import get_translation_manager, tr
 from src.models import Image, Annotation, BoundingBox
 from src.models.enums import AnnotationType
 from pathlib import Path
@@ -153,7 +154,7 @@ class ImageViewerWidget(QWidget):
                 
                 # Afficher la classe
                 if hasattr(annotation, 'class_id'):
-                    class_text = f"Classe {annotation.class_id}"
+                    class_text = f"{tr('component.image_viewer.class_label')} {annotation.class_id}"
                     
                     # Ajouter la confiance si disponible
                     if hasattr(annotation, 'confidence') and annotation.confidence is not None:
@@ -552,15 +553,15 @@ class ImageViewer(QWidget):
         zoom_toolbar = QHBoxLayout()
         
         # Bouton Zoom +
-        self.zoom_in_btn = QPushButton("Zoom +")
+        self.zoom_in_btn = QPushButton(tr("component.image_viewer.zoom_in"))
         self.zoom_in_btn.clicked.connect(self.zoom_in)
         
         # Bouton Zoom -
-        self.zoom_out_btn = QPushButton("Zoom -")
+        self.zoom_out_btn = QPushButton(tr("component.image_viewer.zoom_out"))
         self.zoom_out_btn.clicked.connect(self.zoom_out)
         
         # Bouton Reset Zoom
-        self.reset_zoom_btn = QPushButton("Reset Zoom")
+        self.reset_zoom_btn = QPushButton(tr("component.image_viewer.reset_zoom"))
         self.reset_zoom_btn.clicked.connect(self.reset_zoom)
         
         zoom_toolbar.addWidget(self.zoom_in_btn)
@@ -571,7 +572,7 @@ class ImageViewer(QWidget):
         layout.addLayout(zoom_toolbar)
         
         # Label d'information
-        self.info_label = QLabel("Prêt")
+        self.info_label = QLabel(tr("component.image_viewer.ready"))
         layout.addWidget(self.info_label)
     
     def _on_annotation_selected(self, index):
@@ -771,11 +772,11 @@ class ImageViewer(QWidget):
         
         # Mettre à jour l'info selon le mode
         if mode == self.MODE_CREATE:
-            self.info_label.setText("Mode création: Cliquez et glissez pour créer une bounding box")
+            self.info_label.setText(tr("component.image_viewer.create_mode"))
         elif mode == self.MODE_EDIT:
-            self.info_label.setText("Mode édition: Cliquez sur une annotation pour la sélectionner, déplacer ou redimensionner")
+            self.info_label.setText(tr("component.image_viewer.edit_mode"))
         else:
-            self.info_label.setText("Mode visualisation")
+            self.info_label.setText(tr("component.image_viewer.view_mode"))
         
     def create_annotation_mode(self):
         """Active le mode création d'annotation."""

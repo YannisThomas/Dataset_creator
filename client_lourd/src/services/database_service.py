@@ -90,15 +90,9 @@ class DatabaseService:
             DatabaseError: Si la suppression échoue
         """
         try:
-            # Note: Implémenter cette méthode dans le DatabaseManager
-            if hasattr(self.db_manager, 'delete_dataset'):
-                result = self.db_manager.delete_dataset(name)
-                self.logger.info(f"Dataset supprimé: {name}")
-                return result
-            else:
-                # Solution temporaire si la méthode n'existe pas
-                self.logger.warning("Méthode delete_dataset non implémentée dans DatabaseManager")
-                return False
+            result = self.db_manager.delete_dataset(name)
+            self.logger.info(f"Dataset supprimé: {name}")
+            return result
         except Exception as e:
             self.logger.error(f"Échec de suppression du dataset: {str(e)}")
             raise DatabaseError(f"Impossible de supprimer le dataset: {str(e)}")
@@ -114,15 +108,9 @@ class DatabaseService:
             DatabaseError: Si la récupération échoue
         """
         try:
-            # Note: Implémenter cette méthode dans le DatabaseManager
-            if hasattr(self.db_manager, 'list_datasets'):
-                datasets = self.db_manager.list_datasets()
-                self.logger.debug(f"Récupération de {len(datasets)} datasets")
-                return datasets
-            else:
-                # Solution temporaire si la méthode n'existe pas
-                self.logger.warning("Méthode list_datasets non implémentée dans DatabaseManager")
-                return []
+            datasets = self.db_manager.list_datasets()
+            self.logger.debug(f"Récupération de {len(datasets)} datasets")
+            return datasets
         except Exception as e:
             self.logger.error(f"Échec de récupération des datasets: {str(e)}")
             raise DatabaseError(f"Impossible de lister les datasets: {str(e)}")
@@ -249,16 +237,12 @@ class DatabaseService:
             DatabaseError: Si la récupération échoue
         """
         try:
-            if hasattr(self.db_manager, 'get_migration_history'):
-                history = self.db_manager.get_migration_history()
-                return {
-                    "history": history,
-                    "count": len(history),
-                    "last_applied": history[-1] if history else None
-                }
-            else:
-                self.logger.warning("Méthode get_migration_history non implémentée dans DatabaseManager")
-                return {"history": [], "count": 0, "last_applied": None}
+            history = self.db_manager.get_migration_history()
+            return {
+                "history": history,
+                "count": len(history),
+                "last_applied": history[-1] if history else None
+            }
         except Exception as e:
             self.logger.error(f"Échec de récupération du statut des migrations: {str(e)}")
             raise DatabaseError(f"Impossible de récupérer le statut des migrations: {str(e)}")
@@ -317,3 +301,24 @@ class DatabaseService:
         except Exception as e:
             self.logger.error(f"Échec de sauvegarde de la base de données: {str(e)}")
             raise DatabaseError(f"Impossible de sauvegarder la base de données: {str(e)}")
+    
+    def get_dataset_statistics(self, name: str) -> Dict[str, Any]:
+        """
+        Récupère les statistiques détaillées d'un dataset.
+        
+        Args:
+            name: Nom du dataset
+            
+        Returns:
+            Statistiques du dataset
+            
+        Raises:
+            DatabaseError: Si la récupération échoue
+        """
+        try:
+            stats = self.db_manager.get_dataset_statistics(name)
+            self.logger.debug(f"Statistiques récupérées pour le dataset {name}")
+            return stats
+        except Exception as e:
+            self.logger.error(f"Échec de récupération des statistiques: {str(e)}")
+            raise DatabaseError(f"Impossible de récupérer les statistiques: {str(e)}")

@@ -257,7 +257,14 @@ class ConfigController:
         Returns:
             Dictionnaire des thèmes supportés (code: nom)
         """
-        return {
-            "light": "Clair",
-            "dark": "Sombre"
-        }
+        try:
+            from src.utils.theme_manager import get_theme_manager
+            theme_manager = get_theme_manager()
+            return theme_manager.get_available_themes()
+        except Exception as e:
+            self.logger.warning(f"Impossible de charger les thèmes depuis le gestionnaire: {e}")
+            # Fallback vers les thèmes par défaut
+            return {
+                "light": "Clair",
+                "dark": "Sombre"
+            }

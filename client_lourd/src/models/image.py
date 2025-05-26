@@ -3,7 +3,7 @@
 from typing import List, Dict, Optional, Union
 from datetime import datetime
 from pathlib import Path
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from urllib.parse import urlparse
 
 from .annotation import Annotation, BoundingBox
@@ -20,6 +20,12 @@ class Image(BaseModel):
     metadata: Dict = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: Optional[datetime] = None
+    
+    @field_validator('metadata', mode='before')
+    @classmethod
+    def validate_metadata(cls, v):
+        """Convertit None en dict vide"""
+        return v if v is not None else {}
 
     @model_validator(mode='before')
     @classmethod

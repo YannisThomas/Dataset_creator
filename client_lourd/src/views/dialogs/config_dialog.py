@@ -22,6 +22,7 @@ from PyQt6.QtCore import Qt
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+from src.utils.i18n import get_translation_manager, tr
 from src.utils.logger import Logger
 from src.utils.config import ConfigManager
 from src.controllers.config_controller import ConfigController
@@ -65,7 +66,7 @@ class ConfigDialog(QDialog):
         # Garder une copie des valeurs originales
         self.original_values = {}
         
-        self.setWindowTitle("Configuration")
+        self.setWindowTitle(tr("dialog.config.title"))
         self.setModal(True)
         self.resize(600, 400)
         
@@ -81,23 +82,23 @@ class ConfigDialog(QDialog):
         
         # Onglet Général
         general_tab = self._create_general_tab()
-        self.tab_widget.addTab(general_tab, "Général")
+        self.tab_widget.addTab(general_tab, tr("dialog.config.general"))
         
         # Onglet API
         api_tab = self._create_api_tab()
-        self.tab_widget.addTab(api_tab, "API")
+        self.tab_widget.addTab(api_tab, tr("dialog.config.api_tab"))
         
         # Onglet Base de données
         db_tab = self._create_database_tab()
-        self.tab_widget.addTab(db_tab, "Base de données")
+        self.tab_widget.addTab(db_tab, tr("dialog.config.database_tab"))
         
         layout.addWidget(self.tab_widget)
         
         # Boutons
         buttons_layout = QHBoxLayout()
-        save_button = QPushButton("Enregistrer")
+        save_button = QPushButton(tr("button.save"))
         save_button.clicked.connect(self._save_config)
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(tr("button.cancel"))
         cancel_button.clicked.connect(self.reject)
         
         buttons_layout.addStretch()
@@ -112,42 +113,42 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Interface
-        ui_group = QGroupBox("Paramètres d'interface")
+        ui_group = QGroupBox(tr("dialog.config.ui_group"))
         ui_layout = QFormLayout()
         
         # Langue
         self.language_combo = QComboBox()
         for code, name in self.config_controller.get_supported_languages().items():
             self.language_combo.addItem(name, code)
-        ui_layout.addRow("Langue:", self.language_combo)
+        ui_layout.addRow(tr("dialog.config.language"), self.language_combo)
         
         # Thème
         self.theme_combo = QComboBox()
         for code, name in self.config_controller.get_supported_themes().items():
             self.theme_combo.addItem(name, code)
-        ui_layout.addRow("Thème:", self.theme_combo)
+        ui_layout.addRow(tr("dialog.config.theme"), self.theme_combo)
 
         # Dimensions de la fenêtre
         self.window_width = QSpinBox()
         self.window_width.setRange(800, 3840)
-        ui_layout.addRow("Largeur de la fenêtre:", self.window_width)
+        ui_layout.addRow(tr("dialog.config.window_width"), self.window_width)
         
         self.window_height = QSpinBox()
         self.window_height.setRange(600, 2160)
-        ui_layout.addRow("Hauteur de la fenêtre:", self.window_height)
+        ui_layout.addRow(tr("dialog.config.window_height"), self.window_height)
         
         ui_group.setLayout(ui_layout)
         layout.addWidget(ui_group)
         
         # Groupe Logging
-        log_group = QGroupBox("Journalisation")
+        log_group = QGroupBox(tr("dialog.config.logging_group"))
         log_layout = QFormLayout()
         
         self.debug_mode = QCheckBox("Activer le mode débogage")
         log_layout.addRow(self.debug_mode)
         
         self.log_path = QLineEdit()
-        browse_button = QPushButton("Parcourir...")
+        browse_button = QPushButton(tr("button.browse"))
         browse_button.clicked.connect(lambda: self._browse_directory(self.log_path))
         
         path_layout = QHBoxLayout()
@@ -168,7 +169,7 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Mapillary
-        mapillary_group = QGroupBox("API Mapillary")
+        mapillary_group = QGroupBox(tr("dialog.config.mapillary_group"))
         mapillary_layout = QFormLayout()
         
         self.api_token = QLineEdit()
@@ -208,11 +209,11 @@ class ConfigDialog(QDialog):
         layout = QVBoxLayout(tab)
         
         # Groupe Base de données
-        db_group = QGroupBox("Paramètres de la base de données")
+        db_group = QGroupBox(tr("dialog.config.database_group"))
         db_layout = QFormLayout()
         
         self.db_path = QLineEdit()
-        browse_button = QPushButton("Parcourir...")
+        browse_button = QPushButton(tr("button.browse"))
         browse_button.clicked.connect(lambda: self._browse_file(self.db_path, "Base de données SQLite (*.db)"))
         
         path_layout = QHBoxLayout()
@@ -228,7 +229,7 @@ class ConfigDialog(QDialog):
         layout.addWidget(db_group)
         
         # Actions de base de données
-        actions_group = QGroupBox("Actions de base de données")
+        actions_group = QGroupBox(tr("dialog.config.database_actions"))
         actions_layout = QVBoxLayout()
         
         backup_button = QPushButton("Sauvegarder la base de données")

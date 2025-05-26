@@ -28,6 +28,51 @@ class ExportService:
         """
         self.logger = logger or Logger()
     
+    def _get_image_filename(self, image) -> str:
+        """
+        Extrait le nom de fichier d'une image de manière robuste.
+        
+        Args:
+            image: Objet Image
+            
+        Returns:
+            Nom de fichier avec extension
+        """
+        if hasattr(image.path, 'name'):
+            return image.path.name
+        else:
+            # Gérer le cas où path est une URL ou une chaîne
+            from urllib.parse import urlparse
+            import os
+            path_str = str(image.path)
+            
+            if path_str.startswith(('http://', 'https://')):
+                # URL - extraire le nom du fichier
+                parsed_path = urlparse(path_str)
+                filename = os.path.basename(parsed_path.path)
+            else:
+                # Chemin local stocké comme chaîne
+                filename = os.path.basename(path_str)
+            
+            if not filename or filename == '/':
+                # Générer un nom unique si impossible d'extraire
+                filename = f"{image.id}.jpg"
+            
+            return filename
+    
+    def _get_image_stem(self, image) -> str:
+        """
+        Extrait le nom de fichier sans extension d'une image.
+        
+        Args:
+            image: Objet Image
+            
+        Returns:
+            Nom de fichier sans extension
+        """
+        filename = self._get_image_filename(image)
+        return os.path.splitext(filename)[0]
+    
     def export_dataset(
         self, 
         dataset: Dataset, 
@@ -287,19 +332,7 @@ class ExportService:
             # Exporter chaque image et ses annotations
             for image in dataset.images:
                 # Préparer le nom de fichier de destination
-                # Récupérer le nom de fichier valide
-                if hasattr(image.path, 'name'):
-                    image_filename = image.path.name
-                else:
-                    # Gérer le cas où path est une URL ou une chaîne
-                    from urllib.parse import urlparse
-                    import os
-                    parsed_path = urlparse(str(image.path))
-                    image_filename = os.path.basename(parsed_path.path)
-                    if not image_filename:
-                        # Générer un nom unique si impossible d'extraire
-                        image_filename = f"{image.id}.jpg"
-                
+                image_filename = self._get_image_filename(image)
                 dest_image_path = images_dir / image_filename
                 
                 # Copier l'image si demandé
@@ -492,18 +525,20 @@ class ExportService:
             # Convertir les images et annotations
             ann_id = 1
             for img_idx, image in enumerate(dataset.images, 1):
+                image_filename = self._get_image_filename(image)
+                
                 # Copier l'image si demandé
                 if include_images:
-                    dest_image_path = images_dir / image.path.name
+                    dest_image_path = images_dir / image_filename
                     try:
-                        shutil.copy(image.path, dest_image_path)
+                        shutil.copy(str(image.path), dest_image_path)
                     except Exception as e:
                         self.logger.warning(f"Impossible de copier l'image {image.path}: {str(e)}")
                 
                 # Ajouter l'image
                 coco_data["images"].append({
                     "id": img_idx,
-                    "file_name": image.path.name,
+                    "file_name": image_filename,
                     "width": image.width,
                     "height": image.height,
                     "date_captured": image.created_at.isoformat() if hasattr(image, 'created_at') else None,
@@ -595,13 +630,15 @@ class ExportService:
             # Exporter chaque image et ses annotations
             for image in dataset.images:
                 # Ajouter à la liste des noms
-                image_names.append(image.path.stem)
+                image_stem = self._get_image_stem(image)
+                image_names.append(image_stem)
                 
                 # Copier l'image si demandé
                 if include_images:
-                    dest_image_path = images_dir / image.path.name
+                    image_filename = self._get_image_filename(image)
+                    dest_image_path = images_dir / image_filename
                     try:
-                        shutil.copy(image.path, dest_image_path)
+                        shutil.copy(str(image.path), dest_image_path)
                     except Exception as e:
                         self.logger.warning(f"Impossible de copier l'image {image.path}: {str(e)}")
                 
@@ -650,7 +687,7 @@ class ExportService:
             root.appendChild(folder_elem)
             
             filename_elem = doc.createElement("filename")
-            filename_elem.appendChild(doc.createTextNode(image.path.name))
+            filename_elem.appendChild(doc.createTextNode(self._get_image_filename(image)))
             root.appendChild(filename_elem)
             
             # Source
@@ -733,11 +770,13 @@ class ExportService:
             
             # Écrire le fichier XML
             xml_str = doc.toprettyxml(indent="  ")
-            with open(output_dir / f"{image.path.stem}.xml", 'w', encoding='utf-8') as f:
+            image_stem = self._get_image_stem(image)
+            with open(output_dir / f"{image_stem}.xml", 'w', encoding='utf-8') as f:
                 f.write(xml_str)
             
         except Exception as e:
-            self.logger.warning(f"Échec de création du fichier d'annotation VOC pour {image.path.name}: {str(e)}")
+            image_filename = self._get_image_filename(image)
+            self.logger.warning(f"Échec de création du fichier d'annotation VOC pour {image_filename}: {str(e)}")
     
     def _create_voc_imagesets(self, image_names: List[str], output_dir: Path):
         """
@@ -854,7 +893,7 @@ class ExportService:
                 # Créer une ligne pour l'image
                 row = {
                     "image_id": image.id,
-                    "file_name": image.path.name,
+                    "file_name": self._get_image_filename(image),
                     "width": image.width,
                     "height": image.height,
                     "source": image.source.value,

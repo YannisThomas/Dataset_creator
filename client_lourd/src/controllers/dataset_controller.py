@@ -1,6 +1,6 @@
 # src/controllers/dataset_controller.py
 
-from typing import Dict, Optional, List, Union
+from typing import Dict, Optional, List, Union, Any
 from pathlib import Path
 
 from src.models import Dataset, Image
@@ -289,6 +289,28 @@ class DatasetController:
             self.logger.error(f"Échec de suppression du dataset : {str(e)}")
             raise DatasetError(f"Suppression du dataset impossible : {str(e)}")
     
+    def delete_dataset_by_name(self, name: str, delete_files: bool = False) -> bool:
+        """
+        Supprime un dataset par son nom
+        
+        Args:
+            name: Nom du dataset à supprimer
+            delete_files: Supprimer également les fichiers physiques
+            
+        Returns:
+            True si la suppression a réussi
+        """
+        try:
+            # Supprimer via le service
+            result = self.dataset_service.delete_dataset(name, delete_files)
+            
+            self.logger.info(f"Dataset supprimé : {name}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Échec de la suppression du dataset {name}: {str(e)}")
+            raise DatasetError(f"Suppression impossible : {str(e)}")
+    
     def merge_datasets(
         self, 
         source_datasets: List[Dataset], 
@@ -441,6 +463,27 @@ class DatasetController:
             raise DatasetError(f"Récupération du dataset impossible : {str(e)}")
         
 
+    def save_dataset(self, dataset: Dataset) -> bool:
+        """
+        Sauvegarde un dataset
+        
+        Args:
+            dataset: Dataset à sauvegarder
+            
+        Returns:
+            True si la sauvegarde a réussi
+        """
+        try:
+            # Sauvegarder le dataset via le service
+            result = self.dataset_service.save_dataset(dataset)
+            
+            self.logger.info(f"Dataset sauvegardé : {dataset.name}")
+            return result
+        
+        except Exception as e:
+            self.logger.error(f"Échec de la sauvegarde du dataset : {str(e)}")
+            raise DatasetError(f"Sauvegarde du dataset impossible : {str(e)}")
+
     def update_dataset(self, dataset: Dataset) -> Dataset:
         """
         Met à jour un dataset existant
@@ -464,3 +507,21 @@ class DatasetController:
         except Exception as e:
             self.logger.error(f"Échec de la mise à jour du dataset : {str(e)}")
             raise DatasetError(f"Mise à jour du dataset impossible : {str(e)}")
+    
+    def list_datasets(self) -> List[Dict[str, Any]]:
+        """
+        Liste tous les datasets disponibles avec leurs statistiques
+        
+        Returns:
+            Liste des informations des datasets
+        """
+        try:
+            # Utiliser le service de base de données pour lister les datasets
+            datasets = self.dataset_service.list_datasets()
+            
+            self.logger.info(f"Récupération de {len(datasets)} datasets")
+            return datasets
+        
+        except Exception as e:
+            self.logger.error(f"Échec de récupération des datasets : {str(e)}")
+            raise DatasetError(f"Récupération des datasets impossible : {str(e)}")

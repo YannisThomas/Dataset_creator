@@ -17,7 +17,7 @@ class DatabaseManager:
     """
     
     # Version du schéma - incrémenter à chaque modification de la structure
-    SCHEMA_VERSION = "1.0.0"
+    SCHEMA_VERSION = "2.0.1"
     
     def __init__(self, db_path: Optional[Path] = None, logger: Optional[Logger] = None):
         """
@@ -71,7 +71,7 @@ class DatabaseManager:
         )
         ''')
         
-        # Table des datasets
+        # Table des datasets (sans les classes stockées en JSON)
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS datasets (
             name TEXT PRIMARY KEY,
@@ -79,8 +79,21 @@ class DatabaseManager:
             path TEXT NOT NULL,
             created_at TEXT NOT NULL,
             modified_at TEXT,
-            classes TEXT NOT NULL,
+            description TEXT,
             metadata TEXT
+        )
+        ''')
+        
+        # Table des classes (séparée pour une meilleure normalisation)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS classes (
+            id INTEGER NOT NULL,
+            dataset_name TEXT NOT NULL,
+            name TEXT NOT NULL,
+            color TEXT,
+            metadata TEXT,
+            PRIMARY KEY (id, dataset_name),
+            FOREIGN KEY (dataset_name) REFERENCES datasets(name) ON DELETE CASCADE
         )
         ''')
         
@@ -100,12 +113,13 @@ class DatabaseManager:
         )
         ''')
         
-        # Table des annotations
+        # Table des annotations avec référence aux classes
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS annotations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             image_id TEXT NOT NULL,
             class_id INTEGER NOT NULL,
+            dataset_name TEXT NOT NULL,
             bbox_x REAL NOT NULL,
             bbox_y REAL NOT NULL,
             bbox_width REAL NOT NULL,
@@ -113,9 +127,37 @@ class DatabaseManager:
             confidence REAL,
             type TEXT NOT NULL,
             metadata TEXT,
-            FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE,
+            FOREIGN KEY (class_id, dataset_name) REFERENCES classes(id, dataset_name) ON DELETE CASCADE
         )
         ''')
+        
+        # Table des statistiques
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS dataset_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dataset_name TEXT NOT NULL,
+            stat_date TEXT NOT NULL,
+            image_count INTEGER NOT NULL DEFAULT 0,
+            annotation_count INTEGER NOT NULL DEFAULT 0,
+            class_distribution TEXT,
+            FOREIGN KEY (dataset_name) REFERENCES datasets(name) ON DELETE CASCADE
+        )
+        ''')
+        
+        # Index pour optimiser les performances (créés après la migration pour éviter les problèmes)
+        try:
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_images_dataset ON images(dataset_name)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_image ON annotations(image_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_stats_dataset_date ON dataset_stats(dataset_name, stat_date)')
+            
+            # Index sur annotations avec dataset_name - créé seulement si la colonne existe
+            cursor.execute("PRAGMA table_info(annotations)")
+            ann_columns = [column[1] for column in cursor.fetchall()]
+            if 'dataset_name' in ann_columns:
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_class ON annotations(class_id, dataset_name)')
+        except Exception as e:
+            self.logger.warning(f"Impossible de créer certains index: {e}")
         
         self.conn.commit()
     
@@ -148,56 +190,176 @@ class DatabaseManager:
             self.conn.commit()
             return
         
-        last_version = row[0]
+        current_version = row[0]
         
-        # Liste des migrations à appliquer
-        migrations = [
-            {
-                "version": "1.0.0",
-                "description": "Initial schema",
-                "action": lambda: None  # Pas d'action, déjà fait dans _create_tables
-            },
-            {
-                "version": "1.1.0",
-                "description": "Add indexes",
-                "action": self._migration_add_indexes
-            },
-            {
-                "version": "1.2.0",
-                "description": "Add statistics table",
-                "action": self._migration_add_stats_table
-            }
-        ]
+        # Appliquer les migrations nécessaires
+        if current_version in ["1.0.0", "1.1.0", "1.2.0"] and self.SCHEMA_VERSION >= "2.0.0":
+            self._migrate_v1_to_v2()
+        elif current_version == "2.0.0" and self.SCHEMA_VERSION == "2.0.1":
+            self._migrate_v2_0_to_v2_0_1()
+        elif current_version != self.SCHEMA_VERSION:
+            self.logger.warning(f"Version de schéma non reconnue: {current_version}")
+    
+    def _migrate_v1_to_v2(self):
+        """Migration de la version 1.x vers 2.0.0: Séparer les classes en table distincte."""
+        cursor = self.conn.cursor()
         
-        # Trouver où nous en sommes dans les migrations
-        last_index = -1
-        for i, migration in enumerate(migrations):
-            if migration["version"] == last_version:
-                last_index = i
-                break
-        
-        # Appliquer les migrations suivantes
-        if last_index < len(migrations) - 1:
-            for migration in migrations[last_index + 1:]:
-                self.logger.info(f"Application de la migration {migration['version']}: {migration['description']}")
+        try:
+            self.logger.info("Début de migration v1.x -> v2.0.0")
+            
+            # 1. Créer la nouvelle table classes
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS classes (
+                id INTEGER NOT NULL,
+                dataset_name TEXT NOT NULL,
+                name TEXT NOT NULL,
+                color TEXT,
+                metadata TEXT,
+                PRIMARY KEY (id, dataset_name),
+                FOREIGN KEY (dataset_name) REFERENCES datasets(name) ON DELETE CASCADE
+            )
+            ''')
+            
+            # 2. Migrer les classes depuis le JSON vers la nouvelle table
+            cursor.execute("SELECT name, classes FROM datasets WHERE classes IS NOT NULL")
+            datasets_with_classes = cursor.fetchall()
+            
+            for dataset_name, classes_json in datasets_with_classes:
+                if classes_json:
+                    import json
+                    try:
+                        classes = json.loads(classes_json)
+                        for class_id, class_name in classes.items():
+                            cursor.execute('''
+                            INSERT OR REPLACE INTO classes (id, dataset_name, name)
+                            VALUES (?, ?, ?)
+                            ''', (int(class_id), dataset_name, class_name))
+                    except (json.JSONDecodeError, ValueError) as e:
+                        self.logger.warning(f"Impossible de migrer les classes pour {dataset_name}: {e}")
+            
+            # 3. Ajouter dataset_name aux annotations
+            cursor.execute("PRAGMA table_info(annotations)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'dataset_name' not in columns:
+                # Ajouter la colonne dataset_name
+                cursor.execute("ALTER TABLE annotations ADD COLUMN dataset_name TEXT")
                 
-                try:
-                    # Exécuter l'action de migration
-                    migration["action"]()
-                    
-                    # Enregistrer la migration
-                    cursor.execute('''
-                    INSERT INTO migrations (version, description, applied_at)
-                    VALUES (?, ?, ?)
-                    ''', (migration["version"], migration["description"], datetime.now().isoformat()))
-                    
-                    self.conn.commit()
-                    self.logger.info(f"Migration {migration['version']} appliquée avec succès")
-                    
-                except Exception as e:
-                    self.conn.rollback()
-                    self.logger.error(f"Échec de la migration {migration['version']}: {str(e)}")
-                    raise
+                # Remplir la colonne avec les valeurs correspondantes
+                cursor.execute('''
+                UPDATE annotations 
+                SET dataset_name = (
+                    SELECT i.dataset_name 
+                    FROM images i 
+                    WHERE i.id = annotations.image_id
+                )
+                WHERE dataset_name IS NULL
+                ''')
+            
+            # 4. Ajouter description au lieu de classes dans datasets
+            cursor.execute("PRAGMA table_info(datasets)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'description' not in columns:
+                cursor.execute("ALTER TABLE datasets ADD COLUMN description TEXT")
+            
+            # 5. Supprimer la colonne classes (SQLite ne supporte pas DROP COLUMN directement)
+            # On va créer une nouvelle table et migrer les données
+            cursor.execute('''
+            CREATE TABLE datasets_new (
+                name TEXT PRIMARY KEY,
+                version TEXT NOT NULL,
+                path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                modified_at TEXT,
+                description TEXT,
+                metadata TEXT
+            )
+            ''')
+            
+            cursor.execute('''
+            INSERT INTO datasets_new (name, version, path, created_at, modified_at, description, metadata)
+            SELECT name, version, path, created_at, modified_at, 
+                   CASE WHEN description IS NOT NULL THEN description ELSE '' END,
+                   metadata
+            FROM datasets
+            ''')
+            
+            cursor.execute("DROP TABLE datasets")
+            cursor.execute("ALTER TABLE datasets_new RENAME TO datasets")
+            
+            # 6. Créer les index (après avoir ajouté toutes les colonnes)
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_images_dataset ON images(dataset_name)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_image ON annotations(image_id)')
+            
+            # Vérifier que dataset_name existe avant de créer l'index
+            cursor.execute("PRAGMA table_info(annotations)")
+            ann_columns = [column[1] for column in cursor.fetchall()]
+            if 'dataset_name' in ann_columns:
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_class ON annotations(class_id, dataset_name)')
+            
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_stats_dataset_date ON dataset_stats(dataset_name, stat_date)')
+            
+            # 7. Enregistrer la migration
+            cursor.execute('''
+            INSERT INTO migrations (version, description, applied_at)
+            VALUES (?, ?, ?)
+            ''', ("2.0.0", "Separate classes table and schema improvements", datetime.now().isoformat()))
+            
+            self.conn.commit()
+            self.logger.info("Migration v1.0.0 -> v2.0.0 terminée avec succès")
+            
+        except Exception as e:
+            self.conn.rollback()
+            self.logger.error(f"Échec de la migration v1.x -> v2.0.0: {str(e)}")
+            raise
+    
+    def _migrate_v2_0_to_v2_0_1(self):
+        """Migration mineure pour corriger les index et colonnes manquantes."""
+        cursor = self.conn.cursor()
+        
+        try:
+            self.logger.info("Début de migration v2.0.0 -> v2.0.1")
+            
+            # Vérifier et ajouter dataset_name aux annotations si manquant
+            cursor.execute("PRAGMA table_info(annotations)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'dataset_name' not in columns:
+                self.logger.info("Ajout de la colonne dataset_name aux annotations")
+                cursor.execute("ALTER TABLE annotations ADD COLUMN dataset_name TEXT")
+                
+                # Remplir la colonne avec les valeurs correspondantes
+                cursor.execute('''
+                UPDATE annotations 
+                SET dataset_name = (
+                    SELECT i.dataset_name 
+                    FROM images i 
+                    WHERE i.id = annotations.image_id
+                )
+                WHERE dataset_name IS NULL
+                ''')
+            
+            # Créer les index manquants
+            try:
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_annotations_class ON annotations(class_id, dataset_name)')
+                self.logger.info("Index annotations créé")
+            except Exception as e:
+                self.logger.warning(f"Impossible de créer l'index annotations: {e}")
+            
+            # Enregistrer la migration
+            cursor.execute('''
+            INSERT INTO migrations (version, description, applied_at)
+            VALUES (?, ?, ?)
+            ''', ("2.0.1", "Fix missing columns and indexes", datetime.now().isoformat()))
+            
+            self.conn.commit()
+            self.logger.info("Migration v2.0.0 -> v2.0.1 terminée avec succès")
+            
+        except Exception as e:
+            self.conn.rollback()
+            self.logger.error(f"Échec de la migration v2.0.0 -> v2.0.1: {str(e)}")
+            raise
     
     def _migration_add_indexes(self):
         """Migration: Ajoute des index pour améliorer les performances."""
@@ -234,7 +396,7 @@ class DatabaseManager:
     
     def save_dataset(self, dataset: Dataset) -> bool:
         """
-        Sauvegarde un dataset dans la base de données.
+        Sauvegarde un dataset dans la base de données avec la nouvelle structure.
         
         Args:
             dataset: Dataset à sauvegarder
@@ -245,9 +407,8 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             
-            # Sérialiser les classes et métadonnées en JSON
-            classes_json = json.dumps(dataset.classes)
-            metadata_json = json.dumps(dataset.metadata)
+            # Sérialiser les métadonnées en JSON (avec gestion des valeurs None)
+            metadata_json = json.dumps(dataset.metadata if dataset.metadata else {})
             
             # Vérifier si le dataset existe déjà
             cursor.execute("SELECT name FROM datasets WHERE name = ?", (dataset.name,))
@@ -257,20 +418,24 @@ class DatabaseManager:
                 # Mettre à jour le dataset existant
                 cursor.execute('''
                 UPDATE datasets
-                SET version = ?, path = ?, modified_at = ?, classes = ?, metadata = ?
+                SET version = ?, path = ?, modified_at = ?, description = ?, metadata = ?
                 WHERE name = ?
                 ''', (
                     dataset.version,
                     str(dataset.path),
                     datetime.now().isoformat(),
-                    classes_json,
+                    getattr(dataset, 'description', ''),
                     metadata_json,
                     dataset.name
                 ))
+                
+                # Supprimer les anciennes classes, images et annotations (cascade delete)
+                cursor.execute("DELETE FROM classes WHERE dataset_name = ?", (dataset.name,))
+                cursor.execute("DELETE FROM images WHERE dataset_name = ?", (dataset.name,))
             else:
                 # Insérer un nouveau dataset
                 cursor.execute('''
-                INSERT INTO datasets (name, version, path, created_at, modified_at, classes, metadata)
+                INSERT INTO datasets (name, version, path, created_at, modified_at, description, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     dataset.name,
@@ -278,18 +443,21 @@ class DatabaseManager:
                     str(dataset.path),
                     dataset.created_at.isoformat(),
                     datetime.now().isoformat() if dataset.modified_at else None,
-                    classes_json,
+                    getattr(dataset, 'description', ''),
                     metadata_json
                 ))
             
-            # Supprimer toutes les anciennes images et annotations (cascade delete)
-            if exists:
-                cursor.execute("DELETE FROM images WHERE dataset_name = ?", (dataset.name,))
+            # Sauvegarder les classes
+            for class_id, class_name in dataset.classes.items():
+                cursor.execute('''
+                INSERT INTO classes (id, dataset_name, name)
+                VALUES (?, ?, ?)
+                ''', (class_id, dataset.name, class_name))
             
             # Sauvegarder les images et annotations
             for image in dataset.images:
-                # Sérialiser les métadonnées
-                image_metadata_json = json.dumps(image.metadata)
+                # Sérialiser les métadonnées (avec gestion des valeurs None)
+                image_metadata_json = json.dumps(image.metadata if image.metadata else {})
                 
                 # Insérer l'image
                 cursor.execute('''
@@ -309,25 +477,29 @@ class DatabaseManager:
                 
                 # Insérer les annotations
                 for annotation in image.annotations:
-                    annotation_metadata_json = json.dumps(annotation.metadata)
+                    annotation_metadata_json = json.dumps(annotation.metadata if annotation.metadata else {})
                     
                     cursor.execute('''
-                    INSERT INTO annotations (image_id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, confidence, type, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO annotations (image_id, class_id, dataset_name, bbox_x, bbox_y, bbox_width, bbox_height, confidence, type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         image.id,
                         annotation.class_id,
+                        dataset.name,
                         annotation.bbox.x,
                         annotation.bbox.y,
                         annotation.bbox.width,
                         annotation.bbox.height,
                         annotation.confidence,
-                        annotation.type.value,
+                        annotation.type.value,  # Toujours sauvegarder le type enum, les métadonnées vont dans metadata
                         annotation_metadata_json
                     ))
             
             # Mettre à jour les statistiques
-            self._update_dataset_stats(dataset)
+            try:
+                self._update_dataset_stats(dataset)
+            except Exception as e:
+                self.logger.warning(f"Impossible de mettre à jour les statistiques: {e}")
             
             self.conn.commit()
             self.logger.info(f"Dataset {dataset.name} sauvegardé avec succès")
@@ -374,7 +546,7 @@ class DatabaseManager:
     
     def load_dataset(self, name: str) -> Optional[Dataset]:
         """
-        Charge un dataset depuis la base de données.
+        Charge un dataset depuis la base de données avec la nouvelle structure.
         
         Args:
             name: Nom du dataset à charger
@@ -385,20 +557,40 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             
-            # Récupérer les informations du dataset
-            cursor.execute("SELECT * FROM datasets WHERE name = ?", (name,))
+            # Récupérer les informations du dataset (ordre explicite des colonnes)
+            cursor.execute("SELECT name, version, path, created_at, modified_at, description, metadata FROM datasets WHERE name = ?", (name,))
             dataset_row = cursor.fetchone()
             
             if not dataset_row:
                 self.logger.warning(f"Dataset {name} non trouvé dans la base de données")
                 return None
             
-            # Convertir en dictionnaire
-            dataset_dict = dict(dataset_row)
+            # Convertir en dictionnaire (ordre explicite: name, version, path, created_at, modified_at, description, metadata)
+            dataset_dict = {
+                'name': dataset_row[0],
+                'version': dataset_row[1], 
+                'path': dataset_row[2],
+                'created_at': dataset_row[3],
+                'modified_at': dataset_row[4],
+                'description': dataset_row[5],
+                'metadata': dataset_row[6]
+            }
             
-            # Désérialiser les classes et métadonnées
-            classes = json.loads(dataset_dict['classes'])
-            metadata = json.loads(dataset_dict['metadata']) if dataset_dict['metadata'] else {}
+            # Récupérer les classes depuis la table classes
+            cursor.execute("SELECT id, name FROM classes WHERE dataset_name = ? ORDER BY id", (name,))
+            classes_rows = cursor.fetchall()
+            classes = {row[0]: row[1] for row in classes_rows}
+            
+            # Désérialiser les métadonnées (robuste aux valeurs None/vides)
+            metadata_str = dataset_dict['metadata']
+            if metadata_str and metadata_str.strip():
+                try:
+                    metadata = json.loads(metadata_str)
+                except json.JSONDecodeError:
+                    self.logger.warning(f"Métadonnées JSON invalides pour dataset {name}, utilisation d'un dict vide")
+                    metadata = {}
+            else:
+                metadata = {}
             
             # Créer l'objet Dataset
             dataset = Dataset(
@@ -413,107 +605,195 @@ class DatabaseManager:
             if dataset_dict['modified_at']:
                 dataset.modified_at = datetime.fromisoformat(dataset_dict['modified_at'])
             
+            # Ajouter la description si disponible
+            if dataset_dict.get('description'):
+                dataset.description = dataset_dict['description']
+            
             # Récupérer les images
-            cursor.execute("SELECT * FROM images WHERE dataset_name = ?", (name,))
+            cursor.execute("SELECT id, dataset_name, path, width, height, source, created_at, modified_at, metadata FROM images WHERE dataset_name = ?", (name,))
             image_rows = cursor.fetchall()
             
             for image_row in image_rows:
-                image_dict = dict(image_row)
+                # Ordre explicite: id, dataset_name, path, width, height, source, created_at, modified_at, metadata
+                image_dict = {
+                    'id': image_row[0],
+                    'dataset_name': image_row[1],
+                    'path': image_row[2],
+                    'width': image_row[3],
+                    'height': image_row[4],
+                    'source': image_row[5],
+                    'created_at': image_row[6],
+                    'modified_at': image_row[7],
+                    'metadata': image_row[8]
+                }
                 
-                # Désérialiser les métadonnées
-                image_metadata = json.loads(image_dict['metadata']) if image_dict['metadata'] else {}
+                # Désérialiser les métadonnées (robuste aux valeurs None/vides)
+                metadata_str = image_dict['metadata']
+                if metadata_str and metadata_str.strip():
+                    try:
+                        image_metadata = json.loads(metadata_str)
+                    except json.JSONDecodeError:
+                        self.logger.warning(f"Métadonnées JSON invalides pour image {image_dict['id']}, utilisation d'un dict vide")
+                        image_metadata = {}
+                else:
+                    image_metadata = {}
                 
-                # Traiter le chemin de l'image
-                image_path = image_dict['path']
+                # Récupérer les annotations pour cette image (ordre explicite des colonnes)
+                cursor.execute("""
+                    SELECT id, image_id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, confidence, type, metadata, dataset_name 
+                    FROM annotations WHERE image_id = ?
+                """, (image_dict['id'],))
+                annotation_rows = cursor.fetchall()
                 
-                # Pour les sources distantes, vérifier si le fichier existe localement
-                if (image_dict['source'] == ImageSource.MAPILLARY.value or 
-                    image_dict['source'] == ImageSource.REMOTE.value):
+                annotations = []
+                for ann_row in annotation_rows:
+                    # Ordre explicite: id, image_id, class_id, bbox_x, bbox_y, bbox_width, bbox_height, confidence, type, metadata, dataset_name
+                    ann_dict = {
+                        'id': ann_row[0],
+                        'image_id': ann_row[1],
+                        'class_id': ann_row[2],
+                        'bbox_x': ann_row[3],
+                        'bbox_y': ann_row[4],
+                        'bbox_width': ann_row[5],
+                        'bbox_height': ann_row[6],
+                        'confidence': ann_row[7],
+                        'type': ann_row[8],
+                        'metadata': ann_row[9],
+                        'dataset_name': ann_row[10]
+                    }
                     
-                    # Si le chemin contient http:// ou https://, extraire la partie locale
-                    if image_path.startswith(('http://', 'https://')):
-                        local_part = image_path.split('://')[-1]
-                        local_path = Path(local_part)
-                        
-                        # Vérifier si le chemin local existe
-                        if local_path.exists():
-                            image_path = str(local_path)
-                            self.logger.debug(f"Utilisation du chemin local pour {image_dict['id']}: {local_path}")
-                        else:
-                            # Essayer d'autres chemins possibles
-                            filename = Path(local_part).name
-                            dataset_images_dir = Path(dataset_dict['path']) / "images"
-                            
-                            potential_paths = [
-                                dataset_images_dir / filename,
-                                Path("data/datasets") / name / "images" / filename,
-                                Path("data/downloads") / filename,
-                                Path("downloads") / filename
-                            ]
-                            
-                            for path in potential_paths:
-                                if path.exists():
-                                    image_path = str(path)
-                                    self.logger.debug(f"Chemin alternatif trouvé pour {image_dict['id']}: {path}")
-                                    break
+                    from src.models.annotation import BoundingBox, Annotation
+                    from src.models.enums import AnnotationType
                     
-                    # Si le chemin n'a pas de préfixe http(s) et n'a pas été trouvé localement, ajouter https://
-                    elif not image_path.startswith(('http://', 'https://')):
-                        image_path = f"https://{image_path}"
+                    # Créer la bounding box
+                    bbox = BoundingBox(
+                        x=ann_dict['bbox_x'],
+                        y=ann_dict['bbox_y'],
+                        width=ann_dict['bbox_width'],
+                        height=ann_dict['bbox_height']
+                    )
+                    
+                    # Gérer le type d'annotation - peut contenir des métadonnées Mapillary
+                    annotation_type = AnnotationType.BBOX  # Valeur par défaut
+                    
+                    # Désérialiser les métadonnées (robuste aux valeurs None/vides)
+                    metadata_str = ann_dict['metadata']
+                    if metadata_str and metadata_str.strip():
+                        try:
+                            annotation_metadata = json.loads(metadata_str)
+                        except json.JSONDecodeError:
+                            self.logger.warning(f"Métadonnées JSON invalides pour annotation, utilisation d'un dict vide")
+                            annotation_metadata = {}
+                    else:
+                        annotation_metadata = {}
+                    
+                    # Si le type contient du JSON (données Mapillary), l'extraire
+                    type_value = ann_dict['type']
+                    try:
+                        # Tenter de parser comme AnnotationType standard
+                        annotation_type = AnnotationType(type_value)
+                    except ValueError:
+                        # Si ça échoue, c'est probablement du JSON Mapillary
+                        try:
+                            mapillary_data = json.loads(type_value)
+                            # Déplacer les données Mapillary vers metadata
+                            annotation_metadata.update(mapillary_data)
+                            annotation_type = AnnotationType.BBOX  # Type par défaut pour Mapillary
+                        except json.JSONDecodeError:
+                            # Si ce n'est pas du JSON non plus, utiliser BBOX par défaut
+                            self.logger.warning(f"Type d'annotation non reconnu: {type_value}, utilisation de BBOX par défaut")
+                            annotation_type = AnnotationType.BBOX
+                    
+                    # Créer l'annotation
+                    annotation = Annotation(
+                        class_id=ann_dict['class_id'],
+                        bbox=bbox,
+                        confidence=ann_dict['confidence'],
+                        type=annotation_type,
+                        metadata=annotation_metadata
+                    )
+                    
+                    annotations.append(annotation)
                 
-                # Créer l'objet Image
+                # Créer l'image
+                from src.models.enums import ImageSource
+                
                 image = Image(
                     id=image_dict['id'],
-                    path=image_path,
+                    path=image_dict['path'],
                     width=image_dict['width'],
                     height=image_dict['height'],
                     source=ImageSource(image_dict['source']),
-                    created_at=datetime.fromisoformat(image_dict['created_at']),
-                    metadata=image_metadata
+                    annotations=annotations,
+                    metadata=image_metadata,
+                    created_at=datetime.fromisoformat(image_dict['created_at'])
                 )
                 
                 if image_dict['modified_at']:
                     image.modified_at = datetime.fromisoformat(image_dict['modified_at'])
                 
-                # Récupérer les annotations
-                cursor.execute("SELECT * FROM annotations WHERE image_id = ?", (image.id,))
-                annotation_rows = cursor.fetchall()
-                
-                for annotation_row in annotation_rows:
-                    anno_dict = dict(annotation_row)
-                    
-                    # Désérialiser les métadonnées
-                    anno_metadata = json.loads(anno_dict['metadata']) if anno_dict['metadata'] else {}
-                    
-                    # Créer la bounding box
-                    bbox = BoundingBox(
-                        x=anno_dict['bbox_x'],
-                        y=anno_dict['bbox_y'],
-                        width=anno_dict['bbox_width'],
-                        height=anno_dict['bbox_height']
-                    )
-                    
-                    # Créer l'objet Annotation
-                    annotation = Annotation(
-                        class_id=anno_dict['class_id'],
-                        bbox=bbox,
-                        confidence=anno_dict['confidence'],
-                        type=AnnotationType(anno_dict['type']),
-                        metadata=anno_metadata
-                    )
-                    
-                    # Ajouter l'annotation à l'image
-                    image.add_annotation(annotation)
-                
-                # Ajouter l'image au dataset
                 dataset.add_image(image)
             
-            self.logger.info(f"Dataset {name} chargé avec succès")
+            self.logger.info(f"Dataset {name} chargé avec succès ({len(dataset.images)} images)")
             return dataset
             
         except Exception as e:
-            self.logger.error(f"Échec du chargement du dataset: {str(e)}")
-            raise
+            self.logger.error(f"Échec du chargement du dataset {name}: {str(e)}")
+            return None
+    
+    def list_datasets(self) -> List[Dict[str, Any]]:
+        """
+        Liste tous les datasets disponibles dans la base de données.
+        
+        Returns:
+            Liste des informations de base des datasets
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Récupérer les informations de base des datasets avec statistiques
+            cursor.execute('''
+            SELECT 
+                d.name,
+                d.version,
+                d.description,
+                d.created_at,
+                d.modified_at,
+                COUNT(DISTINCT i.id) as image_count,
+                COUNT(a.id) as annotation_count
+            FROM datasets d
+            LEFT JOIN images i ON d.name = i.dataset_name
+            LEFT JOIN annotations a ON i.id = a.image_id
+            GROUP BY d.name, d.version, d.description, d.created_at, d.modified_at
+            ORDER BY d.modified_at DESC
+            ''')
+            
+            results = []
+            for row in cursor.fetchall():
+                dataset_info = {
+                    'name': row[0],
+                    'version': row[1],
+                    'description': row[2] or '',
+                    'created_at': row[3],
+                    'modified_at': row[4],
+                    'image_count': row[5],
+                    'annotation_count': row[6]
+                }
+                
+                # Récupérer les classes pour ce dataset
+                cursor.execute("SELECT id, name FROM classes WHERE dataset_name = ? ORDER BY id", (row[0],))
+                classes = {class_row[0]: class_row[1] for class_row in cursor.fetchall()}
+                dataset_info['classes'] = classes
+                dataset_info['class_count'] = len(classes)
+                
+                results.append(dataset_info)
+            
+            self.logger.debug(f"Récupération de {len(results)} datasets")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Échec de la récupération des datasets: {str(e)}")
+            return []
     
     def delete_dataset(self, name: str) -> bool:
         """
@@ -528,13 +808,13 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             
-            # Vérifier si le dataset existe
+            # Vérifier que le dataset existe
             cursor.execute("SELECT name FROM datasets WHERE name = ?", (name,))
             if not cursor.fetchone():
-                self.logger.warning(f"Dataset {name} non trouvé, impossible de le supprimer")
+                self.logger.warning(f"Dataset {name} non trouvé")
                 return False
             
-            # Supprimer le dataset (les images et annotations seront supprimées en cascade)
+            # Supprimer le dataset (les foreign keys CASCADE s'occupent du reste)
             cursor.execute("DELETE FROM datasets WHERE name = ?", (name,))
             
             self.conn.commit()
@@ -542,58 +822,68 @@ class DatabaseManager:
             return True
             
         except Exception as e:
-            self.logger.error(f"Échec de la suppression du dataset: {str(e)}")
+            self.logger.error(f"Échec de la suppression du dataset {name}: {str(e)}")
             self.conn.rollback()
             return False
     
-    def list_datasets(self) -> List[Dict[str, Any]]:
+    def get_dataset_statistics(self, name: str) -> Dict[str, Any]:
         """
-        Liste tous les datasets disponibles.
+        Récupère les statistiques détaillées d'un dataset.
         
+        Args:
+            name: Nom du dataset
+            
         Returns:
-            Liste des informations de base des datasets
+            Dictionnaire des statistiques
         """
         try:
             cursor = self.conn.cursor()
             
-            # Récupérer les datasets
+            # Statistiques de base
             cursor.execute('''
-            SELECT name, version, path, created_at, modified_at
-            FROM datasets
-            ORDER BY name
-            ''')
+            SELECT 
+                COUNT(DISTINCT i.id) as image_count,
+                COUNT(a.id) as annotation_count,
+                AVG(i.width) as avg_width,
+                AVG(i.height) as avg_height
+            FROM images i
+            LEFT JOIN annotations a ON i.id = a.image_id
+            WHERE i.dataset_name = ?
+            ''', (name,))
             
-            datasets = []
+            row = cursor.fetchone()
+            stats = {
+                'image_count': row[0] if row[0] else 0,
+                'annotation_count': row[1] if row[1] else 0,
+                'avg_width': float(row[2]) if row[2] else 0,
+                'avg_height': float(row[3]) if row[3] else 0
+            }
+            
+            # Distribution par classe
+            cursor.execute('''
+            SELECT c.id, c.name, COUNT(a.id) as count
+            FROM classes c
+            LEFT JOIN annotations a ON c.id = a.class_id AND c.dataset_name = a.dataset_name
+            WHERE c.dataset_name = ?
+            GROUP BY c.id, c.name
+            ORDER BY c.id
+            ''', (name,))
+            
+            class_distribution = {}
             for row in cursor.fetchall():
-                # Récupérer le nombre d'images pour chaque dataset
-                cursor.execute("SELECT COUNT(*) FROM images WHERE dataset_name = ?", (row['name'],))
-                image_count = cursor.fetchone()[0]
-                
-                # Récupérer le nombre d'annotations pour chaque dataset
-                cursor.execute('''
-                SELECT COUNT(*) 
-                FROM annotations 
-                JOIN images ON annotations.image_id = images.id
-                WHERE images.dataset_name = ?
-                ''', (row['name'],))
-                annotation_count = cursor.fetchone()[0]
-                
-                datasets.append({
-                    'name': row['name'],
-                    'version': row['version'],
-                    'path': row['path'],
-                    'created_at': row['created_at'],
-                    'modified_at': row['modified_at'],
-                    'image_count': image_count,
-                    'annotation_count': annotation_count
-                })
+                class_distribution[row[0]] = {
+                    'name': row[1],
+                    'count': row[2]
+                }
             
-            self.logger.debug(f"Récupération de {len(datasets)} datasets")
-            return datasets
+            stats['class_distribution'] = class_distribution
+            stats['class_count'] = len(class_distribution)
+            
+            return stats
             
         except Exception as e:
-            self.logger.error(f"Échec de la récupération des datasets: {str(e)}")
-            return []
+            self.logger.error(f"Échec de récupération des statistiques pour {name}: {str(e)}")
+            return {}
     
     def apply_migrations(self) -> bool:
         """

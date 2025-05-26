@@ -410,10 +410,10 @@ class APIService:
         else:
             self.cache = None
         
-        # Gestionnaire de limites de taux
+        # Gestionnaire de limites de taux (désactivé - pas de limite)
         self.rate_limiter = RateLimiter(
-            requests_per_minute=60,  # Valeur par défaut, à adapter selon l'API
-            requests_per_day=10000,
+            requests_per_minute=999999,  # Pas de limite pratique
+            requests_per_day=999999,     # Pas de limite pratique
             logger=self.logger
         )
         

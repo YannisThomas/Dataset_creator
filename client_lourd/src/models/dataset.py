@@ -14,9 +14,16 @@ class Dataset(BaseModel):
     path: Path
     classes: Dict[int, str]
     images: List[Image] = Field(default_factory=list)
+    description: Optional[str] = Field(default="", description="Description du dataset")
     created_at: datetime = Field(default_factory=datetime.now)
     modified_at: Optional[datetime] = None
     metadata: Dict = Field(default_factory=dict)
+    
+    @field_validator('metadata', mode='before')
+    @classmethod
+    def validate_metadata(cls, v):
+        """Convertit None en dict vide"""
+        return v if v is not None else {}
     
     @field_validator('path')
     @classmethod
@@ -90,11 +97,16 @@ class Dataset(BaseModel):
             )
             
         for img in self.images:
-            if not img.path.exists():
-                validation["valid"] = False
-                validation["errors"].append(
-                    f"Fichier image manquant: {img.path}"
-                )
+            # Skip path existence check for database-only images (URLs, etc.)
+            if hasattr(img.path, 'exists') and not str(img.path).startswith(('http://', 'https://')):
+                try:
+                    if not img.path.exists():
+                        validation["warnings"].append(
+                            f"Fichier image non accessible: {img.path}"
+                        )
+                except Exception:
+                    # Ignore path check errors for special paths (URLs, etc.)
+                    pass
                 
         for img in self.images:
             for ann in img.annotations:

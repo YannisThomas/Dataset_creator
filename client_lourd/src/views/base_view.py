@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from typing import Optional, Dict, Any
 
 from src.utils.logger import Logger
+from src.utils.i18n import get_translation_manager, tr
 from src.controllers.controller_manager import ControllerManager
 
 class BaseView(QWidget):
@@ -35,10 +36,14 @@ class BaseView(QWidget):
         # Initialisation commune
         self.logger = Logger()
         self.controller_manager = controller_manager
+        self.translation_manager = get_translation_manager()
         
         # Si aucun gestionnaire n'est fourni, en créer un nouveau
         if not self.controller_manager:
             self.controller_manager = ControllerManager()
+            
+        # Connecter le signal de changement de langue
+        self.translation_manager.language_changed.connect(self._on_language_changed)
             
         # Accès direct aux contrôleurs
         self.dataset_controller = self.controller_manager.dataset_controller
@@ -101,6 +106,13 @@ class BaseView(QWidget):
             message: Message à afficher
         """
         QMessageBox.warning(self, title, message)
+    
+    def _on_language_changed(self, language_code: str):
+        """
+        Gestionnaire pour le changement de langue.
+        À surcharger dans les classes filles pour mettre à jour l'interface.
+        """
+        pass
         
     def show_info(self, title: str, message: str):
         """
@@ -174,8 +186,8 @@ class BaseView(QWidget):
             
         reply = QMessageBox.question(
             self,
-            "Sauvegarder les modifications",
-            "Il y a des modifications non sauvegardées. Voulez-vous les sauvegarder?",
+            tr("base_view.save_changes_title"),
+            tr("base_view.save_changes_message"),
             QMessageBox.StandardButton.Yes | 
             QMessageBox.StandardButton.No | 
             QMessageBox.StandardButton.Cancel,

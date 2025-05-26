@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt
 from typing import Optional
 
 from src.utils.logger import Logger
+from src.utils.i18n import get_translation_manager, tr
 from src.controllers.controller_manager import ControllerManager
 
 class BaseDialog(QDialog):
@@ -32,14 +33,40 @@ class BaseDialog(QDialog):
         # Initialisation commune
         self.logger = Logger()
         self.controller_manager = controller_manager
+        self.translation_manager = get_translation_manager()
         
         # Si aucun gestionnaire n'est fourni, en créer un nouveau
         if not self.controller_manager:
             self.controller_manager = ControllerManager()
             
+        # NE PAS réinitialiser la langue - utiliser celle déjà définie globalement
+        # La langue est gérée globalement par MainWindow
+            
+        # Connecter le signal de changement de langue
+        self.translation_manager.language_changed.connect(self._on_language_changed)
+            
         # Propriétés du dialogue
         self.setWindowTitle(title)
         self.setModal(True)
+        
+        # Permettre une initialisation personnalisée avant la création de l'UI
+        self._init_dialog()
+        
+        # Créer l'interface après l'initialisation complète
+        self._create_ui()
+        
+    def _init_dialog(self):
+        """Méthode d'initialisation personnalisée à surcharger si nécessaire."""
+        pass
+    
+    def _create_ui(self):
+        """Méthode à surcharger pour créer l'interface utilisateur."""
+        pass
+    
+    def _on_language_changed(self, language_code: str):
+        """Gestionnaire pour le changement de langue."""
+        # Méthode à surcharger si nécessaire
+        pass
         
     def confirm_action(self, title: str, message: str) -> bool:
         """

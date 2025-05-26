@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QLabel
 )
 from PyQt6.QtCore import Qt
+from src.utils.i18n import get_translation_manager, tr
 import json
 
 class MetadataDetailsDialog(QDialog):
@@ -27,7 +28,7 @@ class MetadataDetailsDialog(QDialog):
         super().__init__(parent)
         self.image = image
         
-        self.setWindowTitle(f"Métadonnées détaillées - {image.path.name}")
+        self.setWindowTitle(f"{tr('dialog.metadata.title')} - {image.path.name}")
         self.resize(600, 500)
         
         self._create_ui()
@@ -37,7 +38,7 @@ class MetadataDetailsDialog(QDialog):
         layout = QVBoxLayout(self)
         
         # En-tête avec les infos basiques
-        header = QLabel(f"<h3>Métadonnées pour {self.image.path.name}</h3>")
+        header = QLabel(f"<h3>{tr('dialog.metadata.header', self.image.path.name)}</h3>")
         header.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(header)
         
@@ -52,10 +53,10 @@ class MetadataDetailsDialog(QDialog):
         # Boutons de commande
         buttons_layout = QHBoxLayout()
         
-        close_button = QPushButton("Fermer")
+        close_button = QPushButton(tr("button.close"))
         close_button.clicked.connect(self.accept)
         
-        copy_button = QPushButton("Copier dans le presse-papier")
+        copy_button = QPushButton(tr("dialog.metadata.copy_clipboard"))
         copy_button.clicked.connect(self._copy_to_clipboard)
         
         buttons_layout.addWidget(copy_button)
@@ -93,7 +94,7 @@ class MetadataDetailsDialog(QDialog):
         
         # Afficher un message temporaire
         original_text = self.metadata_text.toPlainText()
-        self.metadata_text.setPlainText("Métadonnées copiées dans le presse-papier!")
+        self.metadata_text.setPlainText(tr("dialog.metadata.copied_message"))
         
         # Rétablir le texte après 1.5 secondes
         from PyQt6.QtCore import QTimer

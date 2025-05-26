@@ -24,6 +24,7 @@ from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPixmap, QPainter, QTransform
 from typing import Optional, Dict, List
 
+from src.utils.i18n import get_translation_manager, tr
 from src.models import Image, Dataset, Annotation, BoundingBox
 from src.models.enums import AnnotationType
 from src.utils.logger import Logger
@@ -75,7 +76,7 @@ class AnnotationEditor(QDialog):
         self.history_position = -1  # Position actuelle dans l'historique
         
         # Configuration de la fenêtre
-        title = "Modifier l'annotation" if self.is_edit_mode else "Créer une annotation"
+        title = tr("component.annotation_editor.edit_title") if self.is_edit_mode else tr("component.annotation_editor.create_title")
         self.setWindowTitle(title)
         self.resize(600, 500)
         
@@ -100,7 +101,7 @@ class AnnotationEditor(QDialog):
         main_tab_layout = QVBoxLayout(main_tab)
         
         # Groupe Classes
-        class_group = QGroupBox("Classe")
+        class_group = QGroupBox(tr("component.annotation_editor.class_group"))
         class_layout = QFormLayout()
         
         # Liste déroulante des classes
@@ -108,24 +109,24 @@ class AnnotationEditor(QDialog):
         for class_id, class_name in sorted(self.dataset.classes.items()):
             self.class_combo.addItem(class_name, class_id)
         
-        class_layout.addRow("Classe:", self.class_combo)
+        class_layout.addRow(tr("component.annotation_editor.class"), self.class_combo)
         
         # Créer une nouvelle classe
         new_class_button = QToolButton()
         new_class_button.setText("+")
-        new_class_button.setToolTip("Ajouter une nouvelle classe")
+        new_class_button.setToolTip(tr("component.annotation_editor.add_class_tooltip"))
         new_class_button.clicked.connect(self._add_new_class)
         
         class_row_layout = QHBoxLayout()
         class_row_layout.addWidget(self.class_combo)
         class_row_layout.addWidget(new_class_button)
         
-        class_layout.addRow("Classe:", class_row_layout)
+        class_layout.addRow(tr("component.annotation_editor.class"), class_row_layout)
         class_group.setLayout(class_layout)
         main_tab_layout.addWidget(class_group)
         
         # Groupe Bounding Box
-        bbox_group = QGroupBox("Bounding Box")
+        bbox_group = QGroupBox(tr("component.annotation_editor.bbox_group"))
         bbox_layout = QFormLayout()
         
         # Spinners pour les coordonnées
@@ -170,10 +171,10 @@ class AnnotationEditor(QDialog):
         self.height_pixel_label = QLabel("(0px)")
         pixel_layout_h.addWidget(self.height_pixel_label)
         
-        bbox_layout.addRow("X:", pixel_layout_x)
-        bbox_layout.addRow("Y:", pixel_layout_y)
-        bbox_layout.addRow("Largeur:", pixel_layout_w)
-        bbox_layout.addRow("Hauteur:", pixel_layout_h)
+        bbox_layout.addRow(tr("component.annotation_editor.x_coord"), pixel_layout_x)
+        bbox_layout.addRow(tr("component.annotation_editor.y_coord"), pixel_layout_y)
+        bbox_layout.addRow(tr("component.annotation_editor.width"), pixel_layout_w)
+        bbox_layout.addRow(tr("component.annotation_editor.height"), pixel_layout_h)
         
         # Connecter les signaux pour mettre à jour les dimensions en pixels
         self.x_spin.valueChanged.connect(self._update_pixel_labels)
@@ -185,7 +186,7 @@ class AnnotationEditor(QDialog):
         main_tab_layout.addWidget(bbox_group)
         
         # Groupe Confiance
-        conf_group = QGroupBox("Confiance")
+        conf_group = QGroupBox(tr("component.annotation_editor.confidence_group"))
         conf_layout = QFormLayout()
         
         self.conf_spin = QDoubleSpinBox()
@@ -205,20 +206,20 @@ class AnnotationEditor(QDialog):
         self.conf_spin.valueChanged.connect(lambda val: self.conf_slider.setValue(int(val * 100)))
         self.conf_slider.valueChanged.connect(lambda val: self.conf_spin.setValue(val / 100))
         
-        conf_layout.addRow("Confiance:", self.conf_spin)
+        conf_layout.addRow(tr("component.annotation_editor.confidence"), self.conf_spin)
         conf_layout.addRow("", self.conf_slider)
         conf_group.setLayout(conf_layout)
         main_tab_layout.addWidget(conf_group)
         
         # Ajouter l'onglet principal
-        tabs.addTab(main_tab, "Général")
+        tabs.addTab(main_tab, tr("component.annotation_editor.general_tab"))
         
         # Onglet de transformation
         transform_tab = QWidget()
         transform_layout = QVBoxLayout(transform_tab)
         
         # Groupe Rotation
-        rotation_group = QGroupBox("Rotation")
+        rotation_group = QGroupBox(tr("component.annotation_editor.rotation_group"))
         rotation_layout = QFormLayout()
         
         self.rotation_spin = QSpinBox()
@@ -237,7 +238,7 @@ class AnnotationEditor(QDialog):
         self.rotation_spin.valueChanged.connect(self.rotation_slider.setValue)
         self.rotation_slider.valueChanged.connect(self.rotation_spin.setValue)
         
-        rotation_layout.addRow("Rotation (degrés):", self.rotation_spin)
+        rotation_layout.addRow(tr("component.annotation_editor.rotation_degrees"), self.rotation_spin)
         rotation_layout.addRow("", self.rotation_slider)
         
         # Boutons de rotation prédéfinis
@@ -261,7 +262,7 @@ class AnnotationEditor(QDialog):
         transform_layout.addWidget(rotation_group)
         
         # Groupe Redimensionnement
-        resize_group = QGroupBox("Redimensionnement")
+        resize_group = QGroupBox(tr("component.annotation_editor.resize_group"))
         resize_layout = QFormLayout()
         
         # Facteur de redimensionnement
@@ -271,7 +272,7 @@ class AnnotationEditor(QDialog):
         self.scale_factor_spin.setSingleStep(0.1)
         self.scale_factor_spin.setValue(1.0)
         
-        resize_layout.addRow("Facteur:", self.scale_factor_spin)
+        resize_layout.addRow(tr("component.annotation_editor.scale_factor"), self.scale_factor_spin)
         
         # Boutons de redimensionnement prédéfinis
         scale_buttons_layout = QHBoxLayout()
@@ -292,7 +293,7 @@ class AnnotationEditor(QDialog):
         resize_layout.addRow("", scale_buttons_layout)
         
         # Maintenir les proportions
-        self.maintain_aspect_check = QCheckBox("Maintenir les proportions")
+        self.maintain_aspect_check = QCheckBox(tr("component.annotation_editor.maintain_aspect"))
         self.maintain_aspect_check.setChecked(True)
         resize_layout.addRow("", self.maintain_aspect_check)
         
@@ -300,7 +301,7 @@ class AnnotationEditor(QDialog):
         transform_layout.addWidget(resize_group)
         
         # Groupe Position
-        position_group = QGroupBox("Position")
+        position_group = QGroupBox(tr("component.annotation_editor.position_group"))
         position_layout = QFormLayout()
         
         # Boutons de positionnement
@@ -359,14 +360,14 @@ class AnnotationEditor(QDialog):
         transform_layout.addWidget(position_group)
         
         # Ajouter l'onglet de transformation
-        tabs.addTab(transform_tab, "Transformation")
+        tabs.addTab(transform_tab, tr("component.annotation_editor.transform_tab"))
         
         # Onglet Apparence
         appearance_tab = QWidget()
         appearance_layout = QVBoxLayout(appearance_tab)
         
         # Groupe Couleur
-        color_group = QGroupBox("Couleur")
+        color_group = QGroupBox(tr("component.annotation_editor.color_group"))
         color_layout = QFormLayout()
         
         self.color_button = QPushButton()
@@ -374,7 +375,7 @@ class AnnotationEditor(QDialog):
         self.color_button.setStyleSheet(f"background-color: {self.color.name()};")
         self.color_button.clicked.connect(self._select_color)
         
-        color_layout.addRow("Couleur:", self.color_button)
+        color_layout.addRow(tr("component.annotation_editor.color_label"), self.color_button)
         
         # Options de couleur prédéfinies
         color_presets_layout = QHBoxLayout()
@@ -396,7 +397,7 @@ class AnnotationEditor(QDialog):
             preset_button.clicked.connect(lambda checked, c=preset_color: self._set_color(c))
             color_presets_layout.addWidget(preset_button)
         
-        color_layout.addRow("Préréglages:", color_presets_layout)
+        color_layout.addRow(tr("component.annotation_editor.color_presets"), color_presets_layout)
         
         # Slider pour l'opacité
         self.opacity_slider = QSlider(Qt.Orientation.Horizontal)
@@ -406,22 +407,22 @@ class AnnotationEditor(QDialog):
         self.opacity_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.opacity_slider.valueChanged.connect(self._update_opacity)
         
-        color_layout.addRow("Opacité:", self.opacity_slider)
+        color_layout.addRow(tr("component.annotation_editor.opacity"), self.opacity_slider)
         
         color_group.setLayout(color_layout)
         appearance_layout.addWidget(color_group)
         
         # Groupe Options d'affichage
-        display_group = QGroupBox("Options d'affichage")
+        display_group = QGroupBox(tr("component.annotation_editor.display_group"))
         display_layout = QVBoxLayout()
         
-        self.show_label_check = QCheckBox("Afficher le label de classe")
+        self.show_label_check = QCheckBox(tr("component.annotation_editor.show_class_label"))
         self.show_label_check.setChecked(True)
         
-        self.show_confidence_check = QCheckBox("Afficher la valeur de confiance")
+        self.show_confidence_check = QCheckBox(tr("component.annotation_editor.show_confidence"))
         self.show_confidence_check.setChecked(True)
         
-        self.highlight_similar_check = QCheckBox("Mettre en évidence les annotations similaires")
+        self.highlight_similar_check = QCheckBox(tr("component.annotation_editor.highlight_similar"))
         self.highlight_similar_check.setChecked(self.highlight_similar)
         self.highlight_similar_check.stateChanged.connect(self._toggle_highlight_similar)
         
@@ -433,7 +434,7 @@ class AnnotationEditor(QDialog):
         appearance_layout.addWidget(display_group)
         
         # Ajouter l'onglet d'apparence
-        tabs.addTab(appearance_tab, "Apparence")
+        tabs.addTab(appearance_tab, tr("component.annotation_editor.appearance_tab"))
         
         # Ajouter les onglets au layout principal
         main_layout.addWidget(tabs)
@@ -443,12 +444,12 @@ class AnnotationEditor(QDialog):
         
         # Ajouter des boutons pour annuler/rétablir
         if self.is_edit_mode:
-            undo_button = QPushButton("Annuler")
+            undo_button = QPushButton(tr("component.annotation_editor.undo"))
             undo_button.clicked.connect(self._undo)
             undo_button.setEnabled(False)
             self.undo_button = undo_button
             
-            redo_button = QPushButton("Rétablir")
+            redo_button = QPushButton(tr("component.annotation_editor.redo"))
             redo_button.clicked.connect(self._redo)
             redo_button.setEnabled(False)
             self.redo_button = redo_button
@@ -457,20 +458,20 @@ class AnnotationEditor(QDialog):
             control_layout.addWidget(redo_button)
             
             # Ajouter un bouton de duplication
-            duplicate_button = QPushButton("Dupliquer")
+            duplicate_button = QPushButton(tr("component.annotation_editor.duplicate"))
             duplicate_button.clicked.connect(self._duplicate_annotation)
             control_layout.addWidget(duplicate_button)
             
             # Bouton de réinitialisation
-            reset_button = QPushButton("Réinitialiser")
+            reset_button = QPushButton(tr("component.annotation_editor.reset"))
             reset_button.clicked.connect(self._reset_annotation)
             control_layout.addWidget(reset_button)
         
         # Boutons standard
-        save_button = QPushButton("Enregistrer")
+        save_button = QPushButton(tr("button.save"))
         save_button.clicked.connect(self._save_annotation)
         
-        cancel_button = QPushButton("Annuler")
+        cancel_button = QPushButton(tr("button.cancel"))
         cancel_button.clicked.connect(self.reject)
         
         control_layout.addStretch()
@@ -564,13 +565,13 @@ class AnnotationEditor(QDialog):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self,
-                "Erreur",
-                f"Impossible de sauvegarder l'annotation: {str(e)}"
+                tr("component.annotation_editor.error"),
+                f"{tr('component.annotation_editor.save_error')}: {str(e)}"
             )
             
     def _select_color(self):
         """Ouvre un sélecteur de couleur."""
-        color = QColorDialog.getColor(self.color, self, "Sélectionner une couleur")
+        color = QColorDialog.getColor(self.color, self, tr("component.annotation_editor.select_color"))
         if color.isValid():
             self._set_color(color)
             
@@ -724,7 +725,7 @@ class AnnotationEditor(QDialog):
         
         # Créer un dialogue pour ajouter une classe
         dialog = QDialog(self)
-        dialog.setWindowTitle("Ajouter une nouvelle classe")
+        dialog.setWindowTitle(tr("component.annotation_editor.add_class_title"))
         dialog.setModal(True)
         
         layout = QVBoxLayout(dialog)
@@ -741,18 +742,18 @@ class AnnotationEditor(QDialog):
             next_id += 1
         class_id_spin.setValue(next_id)
         
-        form_layout.addRow("ID de classe:", class_id_spin)
+        form_layout.addRow(tr("component.annotation_editor.class_id"), class_id_spin)
         
         # Champ pour le nom de classe
         class_name_edit = QLineEdit()
-        form_layout.addRow("Nom de classe:", class_name_edit)
+        form_layout.addRow(tr("component.annotation_editor.class_name"), class_name_edit)
         
         layout.addLayout(form_layout)
         
         # Boutons
         buttons_layout = QHBoxLayout()
-        add_button = QPushButton("Ajouter")
-        cancel_button = QPushButton("Annuler")
+        add_button = QPushButton(tr("button.add"))
+        cancel_button = QPushButton(tr("button.cancel"))
         
         add_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
@@ -772,8 +773,8 @@ class AnnotationEditor(QDialog):
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(
                     self,
-                    "Avertissement",
-                    "Le nom de classe ne peut pas être vide"
+                    tr("component.annotation_editor.warning"),
+                    tr("component.annotation_editor.empty_class_name")
                 )
                 return
             
@@ -905,8 +906,8 @@ class AnnotationEditor(QDialog):
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.information(
             self,
-            "Duplication réussie",
-            "L'annotation a été dupliquée avec succès"
+            tr("component.annotation_editor.duplicate_success_title"),
+            tr("component.annotation_editor.duplicate_success_message")
         )
     
     def _reset_annotation(self):

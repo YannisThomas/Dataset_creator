@@ -43,7 +43,8 @@ class ExportController:
         dataset: Dataset, 
         export_format: Union[DatasetFormat, str],
         output_path: Optional[Path] = None,
-        validate_before_export: bool = True
+        validate_before_export: bool = True,
+        options: Optional[Dict] = None
     ) -> Path:
         """
         Exporte un dataset dans un format spécifique
@@ -53,6 +54,7 @@ class ExportController:
             export_format: Format d'export
             output_path: Chemin de sortie (optionnel)
             validate_before_export: Valider le dataset avant export
+            options: Options d'export supplémentaires (split_ratio, include_images, etc.)
             
         Returns:
             Chemin du répertoire d'export
@@ -76,7 +78,8 @@ class ExportController:
             export_result = self.export_service.export_dataset(
                 dataset, 
                 export_format, 
-                output_path
+                output_path,
+                options
             )
             
             # Exporter la configuration du dataset
