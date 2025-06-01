@@ -1,3 +1,4 @@
+# NOTE POUR LES EXAMINATEURS : Mot de passe de la session ubuntu : btssio2025
 # 🚦 YOLO Dataset Manager 
 
 ## 🌍 Description du Projet
