@@ -1,6 +1,6 @@
 {
   "api": {
-    "mapillary_token": "MLY|28605705705742899|a4ca170a48a9c0d415ed3637d844012f",
+    "mapillary_token": "VOTRE TOKEN MAPILLARY", 
     "mapillary_url": "https://graph.mapillary.com"
   },
   "class_mapping": {
